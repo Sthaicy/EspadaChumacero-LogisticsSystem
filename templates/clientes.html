@@ -1,0 +1,70 @@
+{% extends 'base.html' %}
+{% block title %}Clientes{% endblock %}
+{% block topbar_title %}Clientes{% endblock %}
+{% block topbar_badge %}Registros{% endblock %}
+{% block content %}
+<div class="toolbar">
+  <button class="btn btn-accent" onclick="openModal('modal-add')">➕ Agregar Cliente</button>
+  <div class="toolbar-sep"></div>
+  <div class="search-input"><span class="search-icon">🔍</span><input type="text" placeholder="Buscar..." id="gs" oninput="globalSearch('gs','tbl')"></div>
+  <div class="toolbar-sep"></div>
+  <a href="/clientes/export" class="btn btn-outline">📥 Exportar Excel</a>
+</div>
+<div class="card">
+  <div class="card-header"><div class="card-icon">👥</div><h2>Lista de Clientes</h2><span class="badge badge-blue" style="margin-left:auto">{{ rows|length }} registros</span></div>
+  <div class="table-wrapper">
+    <table class="data-table" id="tbl">
+      <thead><tr><th>#</th><th>Fecha</th><th>Nombre</th><th>ID/RUC</th><th>Celular</th><th>Dirección</th><th>Correo</th><th class="no-filter">Acciones</th></tr></thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td>{{ r.id }}</td><td>{{ r.fecha }}</td><td><strong>{{ r.nombre }}</strong></td>
+          <td>{{ r.identificacion }}</td><td>{{ r.celular }}</td><td>{{ r.direccion }}</td><td>{{ r.correo }}</td>
+          <td class="actions">
+            <button class="btn btn-outline btn-sm btn-icon" onclick="populateEdit('modal-edit',{id:{{ r.id }},fecha:'{{ r.fecha }}',nombre:'{{ r.nombre|e }}',identificacion:'{{ r.identificacion|e }}',celular:'{{ r.celular|e }}',direccion:'{{ r.direccion|e }}',correo:'{{ r.correo|e }}'})">✏️</button>
+            <button class="btn btn-danger btn-sm btn-icon" onclick="deleteRow('/clientes/delete/{{ r.id }}')">🗑️</button>
+          </td>
+        </tr>
+        {% else %}<tr><td colspan="8"><div class="table-empty"><div class="empty-icon">👥</div><p>Sin clientes registrados</p></div></td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-add"><div class="modal">
+  <div class="modal-header"><h3>➕ Agregar Cliente</h3><button class="modal-close" onclick="closeModal('modal-add')">✕</button></div>
+  <div class="modal-body"><form id="form-add"><div class="form-grid">
+    <div class="form-group"><label>Fecha</label><input type="date" name="fecha" value="{{ today }}" required></div>
+    <div class="form-group"><label>Nombre</label><input type="text" name="nombre" required></div>
+    <div class="form-group"><label>CI / RUC</label><input type="text" name="identificacion"></div>
+    <div class="form-group"><label>Celular</label><input type="tel" name="celular"></div>
+    <div class="form-group full"><label>Dirección</label><input type="text" name="direccion"></div>
+    <div class="form-group full"><label>Correo</label><input type="email" name="correo"></div>
+  </div><div class="form-row">
+    <button type="button" class="btn btn-outline" onclick="closeModal('modal-add')">Cancelar</button>
+    <button type="button" class="btn btn-accent" onclick="submitForm('/clientes/add','form-add','Cliente registrado')">💾 Guardar</button>
+  </div></form></div>
+</div></div>
+
+<div class="modal-overlay" id="modal-edit"><div class="modal">
+  <div class="modal-header"><h3>✏️ Editar Cliente</h3><button class="modal-close" onclick="closeModal('modal-edit')">✕</button></div>
+  <div class="modal-body"><form id="form-edit"><input type="hidden" name="id"><div class="form-grid">
+    <div class="form-group"><label>Fecha</label><input type="date" name="fecha" required></div>
+    <div class="form-group"><label>Nombre</label><input type="text" name="nombre" required></div>
+    <div class="form-group"><label>CI / RUC</label><input type="text" name="identificacion"></div>
+    <div class="form-group"><label>Celular</label><input type="tel" name="celular"></div>
+    <div class="form-group full"><label>Dirección</label><input type="text" name="direccion"></div>
+    <div class="form-group full"><label>Correo</label><input type="email" name="correo"></div>
+  </div><div class="form-row">
+    <button type="button" class="btn btn-outline" onclick="closeModal('modal-edit')">Cancelar</button>
+    <button type="button" class="btn btn-primary" id="btn-edit">💾 Actualizar</button>
+  </div></form></div>
+</div></div>
+{% endblock %}
+{% block scripts %}<script>
+initTableFilter('tbl');
+document.getElementById('btn-edit').addEventListener('click',()=>{
+  const id=document.querySelector('#form-edit [name="id"]').value;
+  submitForm(`/clientes/edit/${id}`,'form-edit','Cliente actualizado');
+});
+</script>{% endblock %}

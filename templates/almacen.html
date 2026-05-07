@@ -1,0 +1,148 @@
+{% extends 'base.html' %}
+{% block title %}Almacén{% endblock %}
+{% block topbar_title %}Almacén{% endblock %}
+{% block topbar_badge %}Stock{% endblock %}
+{% block content %}
+<div class="toolbar">
+  <button class="btn btn-accent" onclick="openModal('modal-salida')">📤 Registrar Salida</button>
+  <a href="/almacen/salidas"  class="btn btn-outline">📋 Salidas de Almacén</a>
+  <a href="/almacen/entradas" class="btn btn-outline">📥 Entradas (Compras)</a>
+  <div class="toolbar-sep"></div>
+  <div class="search-input"><span class="search-icon">🔍</span>
+    <input type="text" id="gs" placeholder="Buscar..." oninput="globalSearch('gs','tbl')">
+  </div>
+  <div class="toolbar-sep"></div>
+  <a href="/almacen/export" class="btn btn-outline">📥 Exportar Excel</a>
+</div>
+
+<div class="card">
+  <div class="card-header"><div class="card-icon">🏭</div><h2>Stock Actual de Almacén</h2>
+    <span class="badge badge-blue" style="margin-left:auto">{{ rows|length }} ítems</span>
+  </div>
+  <div class="table-wrapper">
+    <table class="data-table" id="tbl">
+      <thead><tr><th>#</th><th>Cód. Prod.</th><th>Insumo</th><th>Entradas</th><th>Salidas</th><th>Stock</th><th>Unidad</th><th>Descripción/Cliente</th><th class="no-filter">Acc.</th></tr></thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td>{{ r.id }}</td>
+          <td><span class="badge badge-blue">{{ r.cod_prod }}</span></td>
+          <td><strong>{{ r.insumo }}</strong></td>
+          <td>{{ r.entradas or 0 }}</td><td>{{ r.salidas or 0 }}</td>
+          <td>{% if (r.stock or 0) <= 0 %}<span class="badge badge-red">{{ r.stock or 0 }}</span>
+              {% elif (r.stock or 0) <= 5 %}<span class="badge badge-accent">{{ r.stock }}</span>
+              {% else %}<span class="badge badge-green">{{ r.stock }}</span>{% endif %}</td>
+          <td>{{ r.unidad }}</td><td>{{ r.descripcion_cliente }}</td>
+          <td class="actions">
+            <button class="btn btn-outline btn-sm btn-icon"
+              onclick="populateEdit('modal-edit',{id:{{ r.id }},cod_prod:'{{ r.cod_prod|e }}',insumo:'{{ r.insumo|e }}',unidad:'{{ r.unidad|e }}',descripcion_cliente:'{{ r.descripcion_cliente|e }}'})">✏️</button>
+            <button class="btn btn-danger btn-sm btn-icon" onclick="deleteRow('/almacen/delete/{{ r.id }}')">🗑️</button>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="9"><div class="table-empty"><div class="empty-icon">🏭</div><p>Almacén vacío. Registra compras para generar stock.</p></div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- MODAL SALIDA -->
+<div class="modal-overlay" id="modal-salida"><div class="modal" style="max-width:720px">
+  <div class="modal-header"><h3>📤 Registrar Salida de Almacén</h3><button class="modal-close" onclick="closeModal('modal-salida')">✕</button></div>
+  <div class="modal-body"><form id="form-salida"><div class="form-grid">
+
+    <div class="form-group"><label>Producto (de compras)</label>
+      <select id="sel-producto" onchange="fillProducto(this)" required>
+        <option value="">— Seleccionar producto —</option>
+        {% for p in productos %}
+        <option value="{{ p.cod_prod }}" data-insumo="{{ p.insumo|e }}" data-unidad="{{ p.unidad|e }}" data-stock="{{ p.stock or 0 }}">
+          [{{ p.cod_prod }}] {{ p.insumo }} (Stock: {{ p.stock or 0 }} {{ p.unidad }})
+        </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-group"><label>Fecha</label><input type="date" name="fecha" value="{{ today }}" required></div>
+
+    <!-- Campos ocultos/readonly autollenados -->
+    <input type="hidden" name="cod_prod" id="sal-cod">
+    <div class="form-group"><label>Cód. Producto</label>
+      <input type="text" id="sal-cod-display" readonly style="background:#f5f5f5" placeholder="Automático...">
+    </div>
+    <div class="form-group full"><label>Insumo</label>
+      <input type="text" name="insumo" id="sal-insumo" readonly style="background:#f5f5f5" placeholder="Automático...">
+    </div>
+    <div class="form-group"><label>Cantidad</label>
+      <input type="number" name="cantidad" id="sal-cant" step="1" min="1" placeholder="0" required>
+    </div>
+    <div class="form-group"><label>Unidad</label>
+      <input type="text" name="unidad" id="sal-unidad" readonly style="background:#f5f5f5" placeholder="Automático...">
+    </div>
+
+    <div class="form-group"><label>Proyecto</label>
+      <select name="proyecto" id="sal-proy" onchange="autoFillCodProy(this)">
+        <option value="">— Seleccionar —</option>
+        {% for p in proyectos %}
+        <option value="{{ p.nombre_proyecto }}" data-cod="{{ p.codigo_proyecto }}">{{ p.nombre_proyecto }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-group"><label>Código Proyecto</label>
+      <input type="text" name="codigo_proyecto" id="sal-codproy" readonly style="background:#f5f5f5" placeholder="Automático...">
+    </div>
+    <div class="form-group"><label>Sobrantes</label>
+      <input type="number" name="sobrantes" step="1" min="0" placeholder="0">
+    </div>
+  </div><div class="form-row">
+    <button type="button" class="btn btn-outline" onclick="closeModal('modal-salida')">Cancelar</button>
+    <button type="button" class="btn btn-accent" onclick="guardarSalida()">💾 Guardar</button>
+  </div></form></div>
+</div></div>
+
+<!-- MODAL EDITAR -->
+<div class="modal-overlay" id="modal-edit"><div class="modal">
+  <div class="modal-header"><h3>✏️ Editar Ítem Almacén</h3><button class="modal-close" onclick="closeModal('modal-edit')">✕</button></div>
+  <div class="modal-body"><form id="form-edit"><input type="hidden" name="id"><div class="form-grid">
+    <div class="form-group"><label>Cód. Prod.</label><input type="text" name="cod_prod"></div>
+    <div class="form-group"><label>Insumo</label><input type="text" name="insumo"></div>
+    <div class="form-group"><label>Unidad</label><input type="text" name="unidad"></div>
+    <div class="form-group full"><label>Descripción / Cliente</label><input type="text" name="descripcion_cliente"></div>
+  </div><div class="form-row">
+    <button type="button" class="btn btn-outline" onclick="closeModal('modal-edit')">Cancelar</button>
+    <button type="button" class="btn btn-primary" id="btn-edit">💾 Actualizar</button>
+  </div></form></div>
+</div></div>
+{% endblock %}
+
+{% block scripts %}<script>
+initTableFilter('tbl');
+
+function fillProducto(sel) {
+  const opt = sel.options[sel.selectedIndex];
+  document.getElementById('sal-cod').value       = opt.value;
+  document.getElementById('sal-cod-display').value = opt.value;
+  document.getElementById('sal-insumo').value    = opt.dataset.insumo || '';
+  document.getElementById('sal-unidad').value    = opt.dataset.unidad || '';
+  const stock = parseFloat(opt.dataset.stock) || 0;
+  const cantInput = document.getElementById('sal-cant');
+  cantInput.max = stock;
+  cantInput.placeholder = `Máx. ${stock}`;
+}
+
+function autoFillCodProy(sel) {
+  document.getElementById('sal-codproy').value = sel.options[sel.selectedIndex]?.dataset.cod || '';
+}
+
+function guardarSalida() {
+  const cod = document.getElementById('sal-cod').value;
+  if (!cod) { toast('Selecciona un producto de la lista', 'error'); return; }
+  const proy = document.querySelector('#form-salida [name="proyecto"]').value;
+  if (!proy) { toast('Selecciona un proyecto', 'error'); return; }
+  submitForm('/almacen/salida','form-salida','Salida registrada y almacén actualizado');
+}
+
+document.getElementById('btn-edit').addEventListener('click',()=>{
+  const id=document.querySelector('#form-edit [name="id"]').value;
+  submitForm(`/almacen/edit/${id}`,'form-edit','Almacén actualizado');
+});
+</script>{% endblock %}

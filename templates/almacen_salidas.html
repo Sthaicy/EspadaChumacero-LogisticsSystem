@@ -1,0 +1,66 @@
+{% extends 'base.html' %}
+{% block title %}Salidas de Almacén{% endblock %}
+{% block topbar_title %}Salidas de Almacén{% endblock %}
+{% block topbar_badge %}Almacén{% endblock %}
+{% block content %}
+<div class="toolbar">
+  <a href="/almacen" class="btn btn-outline">← Volver al Almacén</a>
+  <div class="toolbar-sep"></div>
+  <div class="search-input"><span class="search-icon">🔍</span><input type="text" id="gs" placeholder="Buscar..." oninput="globalSearch('gs','tbl')"></div>
+  <div class="toolbar-sep"></div>
+  <a href="/almacen/salidas/export" class="btn btn-outline">📥 Exportar Excel</a>
+</div>
+<div class="card">
+  <div class="card-header"><div class="card-icon">📤</div><h2>Salidas de Almacén</h2>
+    <span class="badge badge-blue" style="margin-left:auto">{{ rows|length }} registros</span>
+  </div>
+  <div class="table-wrapper">
+    <table class="data-table" id="tbl">
+      <thead><tr><th>#</th><th>Cód.</th><th>Fecha</th><th>Insumo</th><th>Cantidad</th><th>Unidad</th><th>Proyecto</th><th>Cód. Proy.</th><th>Sobrantes</th><th class="no-filter">Acc.</th></tr></thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td>{{ r.id }}</td>
+          <td><span class="badge badge-blue">{{ r.cod_prod }}</span></td>
+          <td>{{ r.fecha }}</td>
+          <td><strong>{{ r.insumo }}</strong></td>
+          <td>{{ r.cantidad }}</td>
+          <td>{{ r.unidad }}</td>
+          <td>{{ r.proyecto }}</td>
+          <td>{{ r.codigo_proyecto }}</td>
+          <td>{{ r.sobrantes or 0 }}</td>
+          <td class="actions">
+            <button class="btn btn-outline btn-sm btn-icon"
+              onclick="populateEdit('modal-edit',{id:{{ r.id }},cod_prod:'{{ r.cod_prod|e }}',fecha:'{{ r.fecha }}',insumo:'{{ r.insumo|e }}',cantidad:'{{ r.cantidad }}',unidad:'{{ r.unidad|e }}',proyecto:'{{ r.proyecto|e }}',codigo_proyecto:'{{ r.codigo_proyecto|e }}',sobrantes:'{{ r.sobrantes or 0 }}'})">✏️</button>
+            <button class="btn btn-danger btn-sm btn-icon" onclick="deleteRow('/almacen/salida/delete/{{ r.id }}')">🗑️</button>
+          </td>
+        </tr>
+        {% else %}<tr><td colspan="10"><div class="table-empty"><div class="empty-icon">📤</div><p>Sin salidas registradas</p></div></td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+<div class="modal-overlay" id="modal-edit"><div class="modal">
+  <div class="modal-header"><h3>✏️ Editar Salida</h3><button class="modal-close" onclick="closeModal('modal-edit')">✕</button></div>
+  <div class="modal-body"><form id="form-edit"><input type="hidden" name="id"><div class="form-grid">
+    <div class="form-group"><label>Cód. Prod.</label><input type="text" name="cod_prod"></div>
+    <div class="form-group"><label>Fecha</label><input type="date" name="fecha"></div>
+    <div class="form-group full"><label>Insumo</label><input type="text" name="insumo"></div>
+    <div class="form-group"><label>Cantidad</label><input type="number" name="cantidad" step="0.001" min="0"></div>
+    <div class="form-group"><label>Unidad</label><input type="text" name="unidad"></div>
+    <div class="form-group"><label>Proyecto</label><input type="text" name="proyecto"></div>
+    <div class="form-group"><label>Cód. Proyecto</label><input type="text" name="codigo_proyecto"></div>
+    <div class="form-group"><label>Sobrantes</label><input type="number" name="sobrantes" step="0.001" min="0"></div>
+  </div><div class="form-row">
+    <button type="button" class="btn btn-outline" onclick="closeModal('modal-edit')">Cancelar</button>
+    <button type="button" class="btn btn-primary" id="btn-edit">💾 Actualizar</button>
+  </div></form></div>
+</div></div>
+{% endblock %}
+{% block scripts %}<script>
+initTableFilter('tbl');
+document.getElementById('btn-edit').addEventListener('click',()=>{
+  const id=document.querySelector('#form-edit [name="id"]').value;
+  submitForm(`/almacen/salida/edit/${id}`,'form-edit','Salida actualizada');
+});
+</script>{% endblock %}

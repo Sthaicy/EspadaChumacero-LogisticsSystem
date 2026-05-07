@@ -1,0 +1,134 @@
+{% extends 'base.html' %}
+{% block title %}Asignación de Herramientas{% endblock %}
+{% block topbar_title %}Asignación de Herramientas{% endblock %}
+{% block topbar_badge %}Recursos{% endblock %}
+{% block content %}
+<div class="toolbar">
+  <button class="btn btn-accent" onclick="openModal('modal-asignar')">➕ Registrar Asignación</button>
+  <button class="btn btn-outline" onclick="openModal('modal-lista')">🔧 Lista de Herramientas</button>
+  <a href="/herramientas/historial" class="btn btn-outline">📋 Ver Historial</a>
+</div>
+
+<div class="card">
+  <div class="card-header"><div class="card-icon">🔧</div>
+    <h2>Herramientas Asignadas Hoy — <span style="color:var(--accent)">{{ today }}</span></h2>
+    <span class="badge badge-accent" style="margin-left:auto">{{ asignaciones|length }} activas</span>
+  </div>
+  <div class="table-wrapper">
+    <table class="data-table" id="tbl-asig">
+      <thead><tr><th>#</th><th>Fecha</th><th>Herramienta</th><th>Descripción</th><th>Cant.</th><th>Responsable</th><th>Observaciones</th><th class="no-filter">Devolver</th></tr></thead>
+      <tbody>
+        {% for r in asignaciones %}
+        <tr id="row-{{ r.id }}">
+          <td>{{ r.id }}</td><td>{{ r.fecha }}</td>
+          <td><strong>{{ r.herramienta_nombre }}</strong></td>
+          <td>{{ r.descripcion }}</td><td>{{ r.cantidad }}</td>
+          <td>{{ r.responsable_nombre }}</td><td>{{ r.observaciones }}</td>
+          <td><button class="btn btn-success btn-sm" onclick="devolver({{ r.id }})">✅ Devolver</button></td>
+        </tr>
+        {% else %}<tr><td colspan="8"><div class="table-empty"><div class="empty-icon">🔧</div><p>No hay herramientas asignadas hoy</p></div></td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- MODAL ASIGNAR -->
+<div class="modal-overlay" id="modal-asignar"><div class="modal">
+  <div class="modal-header"><h3>➕ Registrar Asignación</h3><button class="modal-close" onclick="closeModal('modal-asignar')">✕</button></div>
+  <div class="modal-body"><form id="form-asignar"><div class="form-grid">
+    <div class="form-group"><label>Fecha</label><input type="date" name="fecha" value="{{ today }}" required></div>
+    <div class="form-group"><label>Herramienta</label>
+      <select name="herramienta_id" required><option value="">— Seleccionar —</option>
+        {% for h in lista %}<option value="{{ h.id }}">{{ h.nombre }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="form-group full"><label>Descripción</label><input type="text" name="descripcion" placeholder="Descripción de uso..."></div>
+    <div class="form-group"><label>Cantidad</label><input type="number" name="cantidad" min="1" value="1" required></div>
+    <div class="form-group"><label>Responsable</label>
+      <select name="responsable_id" required><option value="">— Seleccionar —</option>
+        {% for t in trabajadores %}<option value="{{ t.id }}">{{ t.nombre }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="form-group full"><label>Observaciones</label><input type="text" name="observaciones"></div>
+  </div><div class="form-row">
+    <button type="button" class="btn btn-outline" onclick="closeModal('modal-asignar')">Cancelar</button>
+    <button type="button" class="btn btn-accent" onclick="submitForm('/herramientas/asignar','form-asignar','Asignación registrada')">💾 Guardar</button>
+  </div></form></div>
+</div></div>
+
+<!-- MODAL LISTA HERRAMIENTAS -->
+<div class="modal-overlay" id="modal-lista"><div class="modal" style="max-width:820px">
+  <div class="modal-header"><h3>🔧 Lista de Herramientas</h3><button class="modal-close" onclick="closeModal('modal-lista')">✕</button></div>
+  <div class="modal-body">
+    <div style="margin-bottom:12px"><button class="btn btn-accent btn-sm" onclick="closeModal('modal-lista');openModal('modal-add-herr')">➕ Agregar Herramienta</button></div>
+    <div class="table-wrapper">
+      <table class="data-table" id="tbl-lista">
+        <thead><tr><th>#</th><th>F.Ingreso</th><th>Nombre</th><th>Descripción</th><th>Marca</th><th>Costo</th><th>Obs.</th><th class="no-filter">Acc.</th></tr></thead>
+        <tbody>
+          {% for h in lista %}
+          <tr>
+            <td>{{ h.id }}</td><td>{{ h.fecha_ingreso }}</td>
+            <td><strong>{{ h.nombre }}</strong></td><td>{{ h.descripcion }}</td>
+            <td>{{ h.marca }}</td><td>Bs. {{ '%.2f'|format(h.costo or 0) }}</td>
+            <td>{{ h.observaciones }}</td>
+            <td class="actions">
+              <button class="btn btn-outline btn-sm btn-icon"
+                onclick="populateEdit('modal-edit-herr',{id:{{ h.id }},fecha_ingreso:'{{ h.fecha_ingreso }}',nombre:'{{ h.nombre|e }}',descripcion:'{{ h.descripcion|e }}',marca:'{{ h.marca|e }}',costo:'{{ h.costo or 0 }}',observaciones:'{{ h.observaciones|e }}'})">✏️</button>
+              <button class="btn btn-danger btn-sm btn-icon" onclick="deleteRow('/herramientas/delete/{{ h.id }}')">🗑️</button>
+            </td>
+          </tr>
+          {% else %}<tr><td colspan="8"><div class="table-empty"><p>Sin herramientas</p></div></td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div></div>
+
+<!-- MODAL ADD HERRAMIENTA -->
+<div class="modal-overlay" id="modal-add-herr"><div class="modal">
+  <div class="modal-header"><h3>➕ Agregar Herramienta</h3><button class="modal-close" onclick="closeModal('modal-add-herr')">✕</button></div>
+  <div class="modal-body"><form id="form-add-herr"><div class="form-grid">
+    <div class="form-group"><label>Fecha Ingreso</label><input type="date" name="fecha_ingreso" value="{{ today }}" required></div>
+    <div class="form-group"><label>Nombre</label><input type="text" name="nombre" required></div>
+    <div class="form-group full"><label>Descripción</label><input type="text" name="descripcion"></div>
+    <div class="form-group"><label>Marca</label><input type="text" name="marca"></div>
+    <div class="form-group"><label>Costo (Bs.)</label><input type="number" name="costo" step="1" min="0" placeholder="0.00"></div>
+    <div class="form-group full"><label>Observaciones</label><input type="text" name="observaciones"></div>
+  </div><div class="form-row">
+    <button type="button" class="btn btn-outline" onclick="closeModal('modal-add-herr')">Cancelar</button>
+    <button type="button" class="btn btn-accent" onclick="submitForm('/herramientas/add','form-add-herr','Herramienta registrada')">💾 Guardar</button>
+  </div></form></div>
+</div></div>
+
+<!-- MODAL EDIT HERRAMIENTA -->
+<div class="modal-overlay" id="modal-edit-herr"><div class="modal">
+  <div class="modal-header"><h3>✏️ Editar Herramienta</h3><button class="modal-close" onclick="closeModal('modal-edit-herr')">✕</button></div>
+  <div class="modal-body"><form id="form-edit-herr"><input type="hidden" name="id"><div class="form-grid">
+    <div class="form-group"><label>Fecha Ingreso</label><input type="date" name="fecha_ingreso" required></div>
+    <div class="form-group"><label>Nombre</label><input type="text" name="nombre" required></div>
+    <div class="form-group full"><label>Descripción</label><input type="text" name="descripcion"></div>
+    <div class="form-group"><label>Marca</label><input type="text" name="marca"></div>
+    <div class="form-group"><label>Costo (Bs.)</label><input type="number" name="costo" step="1" min="0"></div>
+    <div class="form-group full"><label>Observaciones</label><input type="text" name="observaciones"></div>
+  </div><div class="form-row">
+    <button type="button" class="btn btn-outline" onclick="closeModal('modal-edit-herr')">Cancelar</button>
+    <button type="button" class="btn btn-primary" id="btn-edit-herr">💾 Actualizar</button>
+  </div></form></div>
+</div></div>
+{% endblock %}
+{% block scripts %}<script>
+async function devolver(id){
+  if(!confirm('¿Confirmar devolución?')) return;
+  const r=await fetch(`/herramientas/devolver/${id}`,{method:'POST'});
+  const j=await r.json();
+  if(j.ok){
+    toast('Devolución registrada','success');
+    const row=document.getElementById(`row-${id}`);
+    if(row){row.style.opacity='0';row.style.transition='opacity .4s';setTimeout(()=>row.remove(),400);}
+  }
+}
+document.getElementById('btn-edit-herr').addEventListener('click',()=>{
+  const id=document.querySelector('#form-edit-herr [name="id"]').value;
+  submitForm(`/herramientas/edit/${id}`,'form-edit-herr','Herramienta actualizada');
+});
+</script>{% endblock %}

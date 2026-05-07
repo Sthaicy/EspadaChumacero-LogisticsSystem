@@ -1,0 +1,102 @@
+{% extends 'base.html' %}
+{% block title %}Configuraciones{% endblock %}
+{% block topbar_title %}Configuraciones{% endblock %}
+{% block topbar_badge %}Sistema{% endblock %}
+{% block content %}
+
+<div class="config-grid">
+
+  <div class="config-card">
+    <h3>💾 Copia de Seguridad</h3>
+    <p>Descarga un archivo ZIP con toda la base de datos. El nombre incluye la fecha y hora exactas.</p>
+    <a href="/configuraciones/backup" class="btn btn-accent">⬇️ Descargar Backup</a>
+  </div>
+
+  <div class="config-card">
+    <h3>📂 Importar BD</h3>
+    <p>Restaura una copia de seguridad anterior. <strong>Reemplazará todos los datos actuales.</strong></p>
+    <input type="file" id="archivo-backup" accept=".zip" style="margin-bottom:8px;width:100%;font-size:12px">
+    <button class="btn btn-primary" onclick="importarBackup()">📂 Importar Backup</button>
+  </div>
+
+  <div class="config-card">
+    <h3>🗑️ Limpiar Tabla</h3>
+    <p>Elimina todos los registros de una tabla. Esta acción <strong>no se puede deshacer.</strong></p>
+    <select id="tabla-del" style="width:100%;margin-bottom:8px;padding:8px;border:1.5px solid var(--border);border-radius:6px;font-family:Barlow,sans-serif">
+      <option value="">— Seleccionar tabla —</option>
+      <option value="Clientes">Clientes</option>
+      <option value="Proveedores">Proveedores</option>
+      <option value="Trabajadores">Trabajadores</option>
+      <option value="Servicios">Servicios</option>
+      <option value="Ingresos_Servicios">Ingresos Servicios</option>
+      <option value="Ventas">Ventas</option>
+      <option value="Ingresos_Ventas">Ingresos Ventas</option>
+      <option value="Almacen">Almacén</option>
+      <option value="Salidas_Almacen">Salidas de Almacén</option>
+      <option value="Compras">Compras</option>
+      <option value="Herramientas">Herramientas</option>
+      <option value="Asignacion_Herramientas">Asignación Herramientas</option>
+      <option value="Consumibles">Consumibles</option>
+      <option value="Entrega_Consumibles">Entrega Consumibles</option>
+    </select>
+    <button class="btn btn-danger" onclick="eliminarTabla()">🗑️ Limpiar Tabla</button>
+  </div>
+
+  <div class="config-card">
+    <h3>🏭 Stock de Almacén</h3>
+    <p>Accede al inventario actual con stock en tiempo real actualizado desde compras y salidas.</p>
+    <a href="/almacen" class="btn btn-primary">Ver Almacén</a>
+  </div>
+
+  <div class="config-card" style="grid-column: 1 / -1">
+    <h3>🏢 Compras por Proveedor</h3>
+    <p>Resumen de compras agrupadas por proveedor.</p>
+    <div class="table-wrapper" style="margin-top:12px">
+      <table class="data-table">
+        <thead><tr><th>Proveedor</th><th>N° Compras</th><th>Total Comprado</th></tr></thead>
+        <tbody>
+          {% for r in compras_prov %}
+          <tr>
+            <td><strong>{{ r.nombre or 'Sin nombre' }}</strong></td>
+            <td>{{ r.cant }}</td>
+            <td><strong>Bs. {{ '%.2f'|format(r.total or 0) }}</strong></td>
+          </tr>
+          {% else %}
+          <tr><td colspan="3"><div class="table-empty"><p>Sin compras registradas</p></div></td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="config-card">
+    <h3>ℹ️ Información del Sistema</h3>
+    <p>Sistema de Control de Inventarios — Chumacero Espada S.R.L.<br>Flask + SQLite • Acceso en red local.</p>
+    <div class="alert alert-info" style="margin-top:8px;font-size:12px">
+      Desde otras PCs en el mismo WiFi: <strong>http://[IP-SERVIDOR]:5000</strong>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+{% block scripts %}<script>
+async function eliminarTabla(){
+  const tabla=document.getElementById('tabla-del').value;
+  if(!tabla){toast('Selecciona una tabla primero','error');return;}
+  if(!confirm(`⚠️ ¿Eliminar TODOS los registros de "${tabla}"?\nEsta acción no se puede deshacer.`)) return;
+  const fd=new FormData(); fd.append('tabla',tabla);
+  const r=await fetch('/configuraciones/eliminar',{method:'POST',body:fd});
+  const j=await r.json();
+  toast(j.msg,j.ok?'success':'error');
+}
+
+async function importarBackup(){
+  const file=document.getElementById('archivo-backup').files[0];
+  if(!file){toast('Selecciona un archivo ZIP primero','error');return;}
+  if(!confirm('⚠️ Esto reemplazará TODOS los datos actuales. ¿Continuar?')) return;
+  const fd=new FormData(); fd.append('archivo',file);
+  const r=await fetch('/configuraciones/importar',{method:'POST',body:fd});
+  const j=await r.json();
+  toast(j.msg,j.ok?'success':'error');
+}
+</script>{% endblock %}

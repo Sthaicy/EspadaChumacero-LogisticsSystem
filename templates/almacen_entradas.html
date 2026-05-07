@@ -1,0 +1,39 @@
+{% extends 'base.html' %}
+{% block title %}Entradas Almacén{% endblock %}
+{% block topbar_title %}Entradas a Almacén{% endblock %}
+{% block topbar_badge %}Almacén{% endblock %}
+{% block content %}
+<div class="toolbar">
+  <a href="/almacen" class="btn btn-outline">← Volver al Almacén</a>
+  <a href="/compras" class="btn btn-accent">➕ Registrar Compra</a>
+  <div class="toolbar-sep"></div>
+  <div class="search-input"><span class="search-icon">🔍</span><input type="text" id="gs" placeholder="Buscar..." oninput="globalSearch('gs','tbl')"></div>
+  <div class="toolbar-sep"></div>
+  <a href="/compras/export" class="btn btn-outline">📥 Exportar Excel</a>
+</div>
+<div class="card">
+  <div class="card-header"><div class="card-icon">📥</div><h2>Entradas a Almacén (Compras)</h2>
+    <span class="badge badge-blue" style="margin-left:auto">{{ rows|length }} registros</span>
+  </div>
+  <div class="table-wrapper">
+    <table class="data-table" id="tbl">
+      <thead><tr><th>#</th><th>Fecha</th><th>Proveedor</th><th>Cód.</th><th>Insumo</th><th>Cantidad</th><th>Unidad</th><th>P.Unit.</th><th>P.Total</th><th>Tipo Doc.</th><th>N° Doc.</th><th>Pago</th></tr></thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td>{{ r.id }}</td><td>{{ r.fecha }}</td><td>{{ r.proveedor_nombre or '—' }}</td>
+          <td><span class="badge badge-blue">{{ r.cod_prod }}</span></td>
+          <td><strong>{{ r.insumo }}</strong></td>
+          <td>{{ r.cantidad }}</td><td>{{ r.unidad }}</td>
+          <td>Bs. {{ '%.2f'|format(r.precio_unitario or 0) }}</td>
+          <td><strong>Bs. {{ '%.2f'|format(r.precio_total or 0) }}</strong></td>
+          <td>{{ r.tipo_documento }}</td><td>{{ r.nro_documento }}</td>
+          <td><span class="badge badge-green">{{ r.tipo_pago or '—' }}</span></td>
+        </tr>
+        {% else %}<tr><td colspan="12"><div class="table-empty"><div class="empty-icon">📥</div><p>Sin compras registradas</p></div></td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}<script>initTableFilter('tbl');</script>{% endblock %}

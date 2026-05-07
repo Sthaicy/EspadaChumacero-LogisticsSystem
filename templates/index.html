@@ -1,0 +1,24 @@
+{% extends 'base.html' %}
+{% block title %}Inicio{% endblock %}
+{% block topbar_title %}Panel Principal{% endblock %}
+{% block topbar_badge %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="hero">
+  <h1>CONTROL DE INVENTARIOS <em class="hero-accent">•</em></h1>
+  <p>ESPADACHUMACERO S.R.L. — Sistema Integral de Gestión Logística</p>
+</div>
+
+<div class="modules-grid">
+  <a href="/ordenes"       class="module-card"><div class="module-icon">📋</div><div class="module-title">Orden de Servicios</div><div class="module-desc">Gestión de proyectos de servicios con control de pagos y saldos.</div></a>
+  <a href="/ventas"        class="module-card"><div class="module-icon">🛍️</div><div class="module-title">Orden de Venta</div><div class="module-desc">Registro de ventas con seguimiento de pagos y saldo a cobrar.</div></a>
+  <a href="/almacen"       class="module-card"><div class="module-icon">🏭</div><div class="module-title">Almacén</div><div class="module-desc">Stock actual con entradas desde compras y salidas de almacén.</div></a>
+  <a href="/compras"       class="module-card"><div class="module-icon">🛒</div><div class="module-title">Compras</div><div class="module-desc">Registro de compras que actualiza automáticamente el almacén.</div></a>
+  <a href="/herramientas"  class="module-card"><div class="module-icon">🔧</div><div class="module-title">Asig. Herramientas</div><div class="module-desc">Asignación y devolución de herramientas por trabajador.</div></a>
+  <a href="/consumibles"   class="module-card"><div class="module-icon">📦</div><div class="module-title">Entrega Consumibles</div><div class="module-desc">Control de entrega de consumibles a trabajadores por proyecto.</div></a>
+  <a href="/clientes"      class="module-card"><div class="module-icon">👥</div><div class="module-title">Clientes</div><div class="module-desc">Base de datos de clientes con información de contacto.</div></a>
+  <a href="/proveedores"   class="module-card"><div class="module-icon">🏢</div><div class="module-title">Proveedores</div><div class="module-desc">Directorio de proveedores con datos de contacto.</div></a>
+  <a href="/trabajadores"  class="module-card"><div class="module-icon">👷</div><div class="module-title">Trabajadores</div><div class="module-desc">Registro del personal activo de la empresa.</div></a>
+  <a href="/configuraciones" class="module-card"><div class="module-icon">⚙️</div><div class="module-title">Configuraciones</div><div class="module-desc">Backup, importación, compras por proveedor y gestión del sistema.</div></a>
+</div>
+{% endblock %}

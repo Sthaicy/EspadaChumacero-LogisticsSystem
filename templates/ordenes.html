@@ -1,0 +1,204 @@
+{% extends 'base.html' %}
+{% block title %}Orden de Servicios{% endblock %}
+{% block topbar_title %}Orden de Servicios{% endblock %}
+{% block topbar_badge %}Ingresos{% endblock %}
+{% block content %}
+<div class="toolbar">
+  <button class="btn btn-accent" onclick="openModal('modal-add')">➕ Registrar Orden</button>
+  <a href="/ordenes/ingresos"  class="btn btn-outline">📄 Ver Ingresos</a>
+  <a href="/ordenes/historial" class="btn btn-outline">📋 Ver Historial</a>
+  <div class="toolbar-sep"></div>
+  <a href="/ordenes/export" class="btn btn-outline">📥 Exportar Excel</a>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <div class="card-icon">📋</div>
+    <h2>Proyectos con Saldo Pendiente</h2>
+    <span class="badge badge-blue" style="margin-left:auto" id="count-badge">{{ proyectos|length }} proyectos</span>
+  </div>
+  <div class="table-wrapper">
+    <table class="data-table" id="tbl">
+      <thead><tr>
+        <th>Cód. Proyecto</th><th>Nombre Proyecto</th><th>Tipo Servicio</th>
+        <th>Cliente</th><th>Precio Total</th><th>Saldo a Cobrar</th>
+        <th class="no-filter">Acciones</th>
+      </tr></thead>
+      <tbody>
+        {% for p in proyectos %}
+        <tr>
+          <td><span class="badge badge-blue">{{ p.codigo_proyecto }}</span></td>
+          <td><strong>{{ p.nombre_proyecto }}</strong></td>
+          <td><span class="badge badge-accent">{{ p.tipo_servicio or '—' }}</span></td>
+          <td>{{ p.cliente_nombre or '—' }}</td>
+          <td class="col-total">{{ p.precio_total or 0 }}</td>
+          <td class="col-saldo">{{ p.saldo_cobrar or 0 }}</td>
+          <td class="actions">
+            <button class="btn btn-success btn-sm"
+              onclick="abrirPago({{ p.id }},'{{ p.nombre_proyecto|e }}',{{ p.saldo_cobrar or 0 }})">💰 Pago</button>
+            <button class="btn btn-outline btn-sm btn-icon"
+              onclick="populateEdit('modal-edit',{id:{{ p.id }},fecha:'{{ p.fecha }}',codigo_proyecto:'{{ p.codigo_proyecto|e }}',nombre_proyecto:'{{ p.nombre_proyecto|e }}',descripcion:'{{ p.descripcion|e }}',cliente_id:'{{ p.cliente_id or "" }}',tipo_servicio:'{{ p.tipo_servicio|e }}',precio_total:'{{ p.precio_total or 0 }}'})">✏️</button>
+            <button class="btn btn-danger btn-sm btn-icon"
+              onclick="deleteRow('/ordenes/delete/{{ p.id }}')">🗑️</button>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7"><div class="table-empty"><div class="empty-icon">📋</div><p>No hay proyectos con saldo pendiente</p></div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="card-body" style="padding-top:0">
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-top:12px">
+      <div class="total-box"><div><div class="label">Proyectos Visibles</div></div><div class="value" id="sum-count" style="font-size:20px">{{ proyectos|length }}</div></div>
+      <div class="total-box" style="background:linear-gradient(135deg,#1A3A5C,#1E5C8A)"><div><div class="label">Monto Total</div></div><div class="value" id="sum-total">Bs. 0.00</div></div>
+      <div class="total-box" style="background:linear-gradient(135deg,#8C1010,#C01414)"><div><div class="label">Total Saldo a Cobrar</div></div><div class="value" id="sum-saldo">Bs. 0.00</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL REGISTRAR -->
+<div class="modal-overlay" id="modal-add"><div class="modal">
+  <div class="modal-header"><h3>➕ Registrar Orden de Servicio</h3><button class="modal-close" onclick="closeModal('modal-add')">✕</button></div>
+  <div class="modal-body"><form id="form-add"><div class="form-grid">
+    <div class="form-group"><label>Fecha</label><input type="date" name="fecha" value="{{ today }}" required></div>
+    <div class="form-group"><label>Código Proyecto</label>
+      <input type="text" name="codigo_proyecto" id="add-cod" placeholder="SERV-001..." required
+        onblur="checkDuplicado('Servicios','codigo_proyecto',this.value,'err-cod')">
+      <small id="err-cod" style="color:var(--danger);display:none"></small>
+    </div>
+    <div class="form-group full"><label>Nombre del Proyecto</label>
+      <input type="text" name="nombre_proyecto" id="add-nom" required
+        onblur="checkDuplicado('Servicios','nombre_proyecto',this.value,'err-nom')">
+      <small id="err-nom" style="color:var(--danger);display:none"></small>
+    </div>
+    <div class="form-group"><label>Tipo de Servicio</label>
+      <select name="tipo_servicio"><option value="">— Seleccionar —</option>
+        {% for t in tipos_servicio %}<option>{{ t }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="form-group"><label>Cliente</label>
+      <select name="cliente_id"><option value="">— Sin cliente —</option>
+        {% for c in clientes %}<option value="{{ c.id }}">{{ c.nombre }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="form-group"><label>Precio Total (Bs.)</label>
+      <input type="number" name="precio_total" step="1" min="0" placeholder="0" required>
+    </div>
+    <div class="form-group full"><label>Descripción</label>
+      <textarea name="descripcion" placeholder="Descripción..."></textarea>
+    </div>
+  </div><div class="form-row">
+    <button type="button" class="btn btn-outline" onclick="closeModal('modal-add')">Cancelar</button>
+    <button type="button" class="btn btn-accent" onclick="registrarOrden()">💾 Guardar</button>
+  </div></form></div>
+</div></div>
+
+<!-- MODAL EDITAR -->
+<div class="modal-overlay" id="modal-edit"><div class="modal">
+  <div class="modal-header"><h3>✏️ Editar Proyecto</h3><button class="modal-close" onclick="closeModal('modal-edit')">✕</button></div>
+  <div class="modal-body"><form id="form-edit"><input type="hidden" name="id"><div class="form-grid">
+    <div class="form-group"><label>Fecha</label><input type="date" name="fecha" required></div>
+    <div class="form-group"><label>Código Proyecto</label><input type="text" name="codigo_proyecto" readonly style="background:#f5f5f5"></div>
+    <div class="form-group full"><label>Nombre del Proyecto</label><input type="text" name="nombre_proyecto" required></div>
+    <div class="form-group"><label>Tipo de Servicio</label>
+      <select name="tipo_servicio"><option value="">—</option>
+        {% for t in tipos_servicio %}<option>{{ t }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="form-group"><label>Cliente</label>
+      <select name="cliente_id"><option value="">—</option>
+        {% for c in clientes %}<option value="{{ c.id }}">{{ c.nombre }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="form-group"><label>Precio Total (Bs.)</label><input type="number" name="precio_total" step="1" min="0"></div>
+    <div class="form-group full"><label>Descripción</label><textarea name="descripcion"></textarea></div>
+  </div><div class="form-row">
+    <button type="button" class="btn btn-outline" onclick="closeModal('modal-edit')">Cancelar</button>
+    <button type="button" class="btn btn-primary" id="btn-edit">💾 Actualizar</button>
+  </div></form></div>
+</div></div>
+
+<!-- MODAL PAGO -->
+<div class="modal-overlay" id="modal-pago"><div class="modal">
+  <div class="modal-header"><h3>💰 Añadir Pago — Servicio</h3><button class="modal-close" onclick="closeModal('modal-pago')">✕</button></div>
+  <div class="modal-body">
+    <div class="alert alert-info" id="pago-info"></div>
+    <form id="form-pago"><input type="hidden" id="pago-sid">
+      <div class="form-grid">
+        <div class="form-group"><label>Fecha</label><input type="date" name="fecha" value="{{ today }}" required></div>
+        <div class="form-group"><label>Monto Facturado (Bs.)</label><input type="number" name="monto_facturado" step="1" min="0" placeholder="0"></div>
+        <div class="form-group"><label>N° Factura</label><input type="text" name="nro_factura"></div>
+        <div class="form-group"><label>Monto (Bs.)</label><input type="number" name="monto" step="1" min="0" placeholder="0"></div>
+        <div class="form-group"><label>Tipo de Pago</label>
+          <select name="tipo_pago"><option value="">—</option>
+            {% for t in tipos_pago %}<option>{{ t }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="form-group full"><label>Observaciones</label><input type="text" name="observaciones"></div>
+      </div>
+      <div class="form-row">
+        <button type="button" class="btn btn-outline" onclick="closeModal('modal-pago')">Cancelar</button>
+        <button type="button" class="btn btn-success" id="btn-pago">💰 Registrar Pago</button>
+      </div>
+    </form>
+  </div>
+</div></div>
+{% endblock %}
+
+{% block scripts %}<script>
+const COL_TOTAL=4, COL_SALDO=5;
+function doRecalc(){
+  recalcTotals({tableId:'tbl',
+    cols:[{id:'sum-total',colIndex:COL_TOTAL},{id:'sum-saldo',colIndex:COL_SALDO}],
+    countId:'sum-count',badgeId:'count-badge',badgeLabel:'proyectos'});
+}
+document.addEventListener('DOMContentLoaded',()=>{
+  initTableFilter('tbl');
+  document.querySelectorAll('#tbl .filter-row input').forEach(i=>i.addEventListener('input',()=>{filterTable('tbl');doRecalc();}));
+  doRecalc();
+});
+
+async function checkDuplicado(tabla, campo, valor, errId) {
+  if (!valor.trim()) return;
+  const r = await fetch('/api/check_duplicado', {method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({tabla, campo, valor: valor.trim()})});
+  const j = await r.json();
+  const el = document.getElementById(errId);
+  if (j.existe) {
+    el.textContent = `⚠️ Ya existe con este ${campo === 'codigo_proyecto' ? 'código' : 'nombre'}`;
+    el.style.display = 'block';
+  } else {
+    el.style.display = 'none';
+  }
+}
+
+async function registrarOrden() {
+  // Verificar que no haya errores de duplicado visibles
+  const errores = document.querySelectorAll('#form-add small[style*="block"]');
+  if (errores.length > 0) { toast('Corrige los errores antes de guardar', 'error'); return; }
+  const j = await submitForm('/ordenes/registrar','form-add','Orden registrada', false);
+  if (j && j.ok) { closeModal('modal-add'); setTimeout(()=>location.reload(),600); }
+  else if (j && !j.ok) { toast(j.msg || 'Error al registrar', 'error'); }
+}
+
+function abrirPago(sid,nombre,saldo){
+  document.getElementById('pago-sid').value=sid;
+  document.getElementById('pago-info').textContent=`Proyecto: ${nombre} — Saldo: Bs. ${parseFloat(saldo).toFixed(2)}`;
+  document.getElementById('form-pago').reset();
+  document.getElementById('pago-sid').value=sid;
+  document.querySelector('#form-pago [name="fecha"]').value='{{ today }}';
+  openModal('modal-pago');
+}
+document.getElementById('btn-pago').addEventListener('click',async()=>{
+  const sid=document.getElementById('pago-sid').value;
+  const j=await submitForm(`/ordenes/pago/${sid}`,'form-pago','Pago registrado',false);
+  if(j&&j.ok){closeModal('modal-pago');setTimeout(()=>location.reload(),600);}
+  else if(j&&!j.ok){toast(j.msg||'Error','error');}
+});
+document.getElementById('btn-edit').addEventListener('click',()=>{
+  const id=document.querySelector('#form-edit [name="id"]').value;
+  submitForm(`/ordenes/edit/${id}`,'form-edit','Proyecto actualizado');
+});
+</script>{% endblock %}

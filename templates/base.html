@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Sistema{% endblock %} — ESPADACHUMACERO S.R.L.</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js" defer></script>
+</head>
+<body>
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-logo">
+    <div class="logo-container">
+      <img src="{{ url_for('static', filename='img/logo.png') }}"
+           alt="Logo EspadaChumacero" class="company-logo-large"
+           onerror="this.src='https://placehold.co/120x120/1e3c72/white?text=EC'">
+    </div>
+    <span class="company">EspadaCumacero S.R.L.</span>
+    <div class="title">Control de<br>Inventarios</div>
+    <div class="subtitle">Sistema de Gestión Logística</div>
+  </div>
+  <nav>
+    <div class="nav-section">Principal</div>
+    <a href="/" class="nav-item"><span class="nav-icon">🏠</span> Inicio</a>
+    <div class="nav-section">Ingresos</div>
+    <a href="/ordenes" class="nav-item"><span class="nav-icon">📋</span> Orden de Servicios</a>
+    <a href="/ventas"  class="nav-item"><span class="nav-icon">🛍️</span> Orden de Venta</a>
+    <div class="nav-section">Almacén</div>
+    <a href="/almacen" class="nav-item"><span class="nav-icon">🏭</span> Almacén</a>
+    <a href="/compras" class="nav-item"><span class="nav-icon">🛒</span> Compras</a>
+    <div class="nav-section">Recursos</div>
+    <a href="/herramientas" class="nav-item"><span class="nav-icon">🔧</span> Asig. Herramientas</a>
+    <a href="/consumibles"  class="nav-item"><span class="nav-icon">📦</span> Entrega Consumibles</a>
+    <div class="nav-section">Registros</div>
+    <a href="/clientes"     class="nav-item"><span class="nav-icon">👥</span> Clientes</a>
+    <a href="/proveedores"  class="nav-item"><span class="nav-icon">🏢</span> Proveedores</a>
+    <a href="/trabajadores" class="nav-item"><span class="nav-icon">👷</span> Trabajadores</a>
+    <div class="nav-section">Sistema</div>
+    <a href="/configuraciones" class="nav-item"><span class="nav-icon">⚙️</span> Configuraciones</a>
+  </nav>
+  <div class="sidebar-footer">v3.0 &nbsp;•&nbsp; 2025</div>
+</aside>
+<div class="main">
+  <header class="topbar">
+    <div class="topbar-title">{% block topbar_title %}Dashboard{% endblock %}</div>
+    <span class="topbar-badge">{% block topbar_badge %}General{% endblock %}</span>
+    <div class="topbar-right"><span class="topbar-date" id="topbar-date"></span></div>
+  </header>
+  <main class="page-content">{% block content %}{% endblock %}</main>
+</div>
+<div id="toast-container"></div>
+<script src="{{ url_for('static', filename='js/main.js') }}"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

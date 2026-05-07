@@ -1,0 +1,88 @@
+{% extends 'base.html' %}
+{% block title %}Ingresos Servicios{% endblock %}
+{% block topbar_title %}Ingresos Servicios{% endblock %}
+{% block topbar_badge %}Servicios{% endblock %}
+{% block content %}
+<div class="toolbar">
+  <a href="/ordenes" class="btn btn-outline">← Volver</a>
+  <div class="toolbar-sep"></div>
+  <div class="search-input"><span class="search-icon">🔍</span><input type="text" id="gs" placeholder="Buscar..." oninput="globalSearch('gs','tbl');doRecalc()"></div>
+  <div class="toolbar-sep"></div>
+  <a href="/ordenes/ingresos/export" class="btn btn-outline">📥 Exportar Excel</a>
+</div>
+
+<div class="card">
+  <div class="card-header"><div class="card-icon">📄</div><h2>Ingresos de Servicios</h2>
+    <span class="badge badge-blue" style="margin-left:auto" id="count-badge">{{ rows|length }} registros</span>
+  </div>
+  <div class="table-wrapper">
+    <table class="data-table" id="tbl">
+      <thead><tr>
+        <th>#</th><th>Fecha</th><th>Cód.</th><th>Proyecto</th><th>Cliente</th>
+        <th>M. Facturado</th><th>N° Factura</th><th>Monto</th><th>Tipo Pago</th><th>Observaciones</th>
+        <th class="no-filter">Acciones</th>
+      </tr></thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td>{{ r.id }}</td><td>{{ r.fecha }}</td>
+          <td><span class="badge badge-blue">{{ r.codigo_proyecto }}</span></td>
+          <td><strong>{{ r.nombre_proyecto }}</strong></td>
+          <td>{{ r.cliente_nombre or '—' }}</td>
+          <td class="col-fact">{{ r.monto_facturado or 0 }}</td>
+          <td>{{ r.nro_factura }}</td>
+          <td class="col-monto">{{ r.monto or 0 }}</td>
+          <td><span class="badge badge-green">{{ r.tipo_pago or '—' }}</span></td>
+          <td>{{ r.observaciones }}</td>
+          <td class="actions">
+            <button class="btn btn-outline btn-sm btn-icon"
+              onclick="populateEdit('modal-edit',{id:{{ r.id }},fecha:'{{ r.fecha }}',monto_facturado:'{{ r.monto_facturado or 0 }}',nro_factura:'{{ r.nro_factura|e }}',monto:'{{ r.monto or 0 }}',tipo_pago:'{{ r.tipo_pago|e }}',observaciones:'{{ r.observaciones|e }}'})">✏️</button>
+            <button class="btn btn-danger btn-sm btn-icon" onclick="deleteRow('/ordenes/ingresos/delete/{{ r.id }}')">🗑️</button>
+          </td>
+        </tr>
+        {% else %}<tr><td colspan="11"><div class="table-empty"><div class="empty-icon">📄</div><p>Sin registros</p></div></td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="card-body" style="padding-top:0">
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-top:12px">
+      <div class="total-box"><div><div class="label">Filas Visibles</div></div><div class="value" id="sum-count" style="font-size:20px">{{ rows|length }}</div></div>
+      <div class="total-box" style="background:linear-gradient(135deg,#1A3A5C,#1E5C8A)"><div><div class="label">Total M. Facturado</div></div><div class="value" id="sum-fact">Bs. 0.00</div></div>
+      <div class="total-box" style="background:linear-gradient(135deg,#0F6F4B,#1DB87A)"><div><div class="label">Total Monto</div></div><div class="value" id="sum-monto">Bs. 0.00</div></div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-edit"><div class="modal">
+  <div class="modal-header"><h3>✏️ Editar Ingreso</h3><button class="modal-close" onclick="closeModal('modal-edit')">✕</button></div>
+  <div class="modal-body"><form id="form-edit"><input type="hidden" name="id"><div class="form-grid">
+    <div class="form-group"><label>Fecha</label><input type="date" name="fecha"></div>
+    <div class="form-group"><label>Monto Facturado</label><input type="number" name="monto_facturado" step="0.01" min="0"></div>
+    <div class="form-group"><label>N° Factura</label><input type="text" name="nro_factura"></div>
+    <div class="form-group"><label>Monto</label><input type="number" name="monto" step="0.01" min="0"></div>
+    <div class="form-group"><label>Tipo de Pago</label>
+      <select name="tipo_pago"><option value="">—</option>{% for t in tipos_pago %}<option>{{ t }}</option>{% endfor %}</select>
+    </div>
+    <div class="form-group full"><label>Observaciones</label><input type="text" name="observaciones"></div>
+  </div><div class="form-row">
+    <button type="button" class="btn btn-outline" onclick="closeModal('modal-edit')">Cancelar</button>
+    <button type="button" class="btn btn-primary" id="btn-edit">💾 Actualizar</button>
+  </div></form></div>
+</div></div>
+{% endblock %}
+{% block scripts %}<script>
+function doRecalc(){
+  recalcTotals({tableId:'tbl',
+    cols:[{id:'sum-fact',colIndex:5},{id:'sum-monto',colIndex:7}],
+    countId:'sum-count',badgeId:'count-badge',badgeLabel:'registros'});
+}
+document.addEventListener('DOMContentLoaded',()=>{
+  initTableFilter('tbl');
+  document.querySelectorAll('#tbl .filter-row input').forEach(i=>i.addEventListener('input',()=>{filterTable('tbl');doRecalc();}));
+  doRecalc();
+});
+document.getElementById('btn-edit').addEventListener('click',()=>{
+  const id=document.querySelector('#form-edit [name="id"]').value;
+  submitForm(`/ordenes/ingresos/edit/${id}`,'form-edit','Ingreso actualizado');
+});
+</script>{% endblock %}

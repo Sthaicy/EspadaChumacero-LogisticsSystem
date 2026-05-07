@@ -1,0 +1,121 @@
+{% extends 'base.html' %}
+{% block title %}Entrega Consumibles{% endblock %}
+{% block topbar_title %}Entrega de Consumibles{% endblock %}
+{% block topbar_badge %}Recursos{% endblock %}
+{% block content %}
+<div class="toolbar">
+  <button class="btn btn-accent" onclick="openModal('modal-entregar')">➕ Registrar Entrega</button>
+  <button class="btn btn-outline" onclick="openModal('modal-lista')">📦 Lista de Consumibles</button>
+  <a href="/consumibles/historial" class="btn btn-outline">📋 Ver Historial</a>
+</div>
+
+<div class="card">
+  <div class="card-header"><div class="card-icon">📦</div>
+    <h2>Entregas del Día — <span style="color:var(--accent)">{{ today }}</span></h2>
+    <span class="badge badge-accent" style="margin-left:auto">{{ entregas_hoy|length }} entregas</span>
+  </div>
+  <div class="table-wrapper">
+    <table class="data-table" id="tbl-hoy">
+      <thead><tr><th>#</th><th>Consumible</th><th>Descripción</th><th>Cantidad</th><th>Responsable</th><th>Proyecto</th><th>Observaciones</th></tr></thead>
+      <tbody>
+        {% for r in entregas_hoy %}
+        <tr>
+          <td>{{ r.id }}</td>
+          <td><strong>{{ r.consumible_nombre }}</strong></td>
+          <td>{{ r.descripcion }}</td><td>{{ r.cantidad }}</td>
+          <td>{{ r.responsable_nombre }}</td>
+          <td>{{ r.proyecto }}</td><td>{{ r.observaciones }}</td>
+        </tr>
+        {% else %}<tr><td colspan="7"><div class="table-empty"><div class="empty-icon">📦</div><p>Sin entregas registradas hoy</p></div></td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- MODAL ENTREGAR -->
+<div class="modal-overlay" id="modal-entregar"><div class="modal">
+  <div class="modal-header"><h3>➕ Registrar Entrega de Consumible</h3><button class="modal-close" onclick="closeModal('modal-entregar')">✕</button></div>
+  <div class="modal-body"><form id="form-entregar"><div class="form-grid">
+    <div class="form-group"><label>Fecha</label><input type="date" name="fecha" value="{{ today }}" required></div>
+    <div class="form-group"><label>Consumible</label>
+      <select name="consumible_id" required><option value="">— Seleccionar —</option>
+        {% for c in lista %}<option value="{{ c.id }}">{{ c.nombre }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="form-group full"><label>Descripción</label><input type="text" name="descripcion" placeholder="Descripción..."></div>
+    <div class="form-group"><label>Cantidad</label><input type="number" name="cantidad" step="0.01" min="0" placeholder="0" required></div>
+    <div class="form-group"><label>Responsable</label>
+      <select name="responsable_id" required><option value="">— Seleccionar —</option>
+        {% for t in trabajadores %}<option value="{{ t.id }}">{{ t.nombre }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="form-group"><label>Proyecto</label>
+      <select name="proyecto"><option value="">— Sin proyecto —</option>
+        {% for p in proyectos %}<option value="{{ p.nombre_proyecto }}">{{ p.nombre_proyecto }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="form-group full"><label>Observaciones</label><input type="text" name="observaciones"></div>
+  </div><div class="form-row">
+    <button type="button" class="btn btn-outline" onclick="closeModal('modal-entregar')">Cancelar</button>
+    <button type="button" class="btn btn-accent" onclick="submitForm('/consumibles/entregar','form-entregar','Entrega registrada')">💾 Guardar</button>
+  </div></form></div>
+</div></div>
+
+<!-- MODAL LISTA CONSUMIBLES -->
+<div class="modal-overlay" id="modal-lista"><div class="modal" style="max-width:700px">
+  <div class="modal-header"><h3>📦 Lista de Consumibles</h3><button class="modal-close" onclick="closeModal('modal-lista')">✕</button></div>
+  <div class="modal-body">
+    <div style="margin-bottom:12px"><button class="btn btn-accent btn-sm" onclick="closeModal('modal-lista');openModal('modal-add-cons')">➕ Agregar Consumible</button></div>
+    <div class="table-wrapper">
+      <table class="data-table">
+        <thead><tr><th>#</th><th>Nombre</th><th>Descripción</th><th>Observaciones</th><th class="no-filter">Acc.</th></tr></thead>
+        <tbody>
+          {% for c in lista %}
+          <tr>
+            <td>{{ c.id }}</td><td><strong>{{ c.nombre }}</strong></td>
+            <td>{{ c.descripcion }}</td><td>{{ c.observaciones }}</td>
+            <td class="actions">
+              <button class="btn btn-outline btn-sm btn-icon"
+                onclick="populateEdit('modal-edit-cons',{id:{{ c.id }},nombre:'{{ c.nombre|e }}',descripcion:'{{ c.descripcion|e }}',observaciones:'{{ c.observaciones|e }}'})">✏️</button>
+              <button class="btn btn-danger btn-sm btn-icon" onclick="deleteRow('/consumibles/delete/{{ c.id }}')">🗑️</button>
+            </td>
+          </tr>
+          {% else %}<tr><td colspan="5"><div class="table-empty"><p>Sin consumibles</p></div></td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div></div>
+
+<!-- MODAL ADD CONSUMIBLE -->
+<div class="modal-overlay" id="modal-add-cons"><div class="modal">
+  <div class="modal-header"><h3>➕ Agregar Consumible</h3><button class="modal-close" onclick="closeModal('modal-add-cons')">✕</button></div>
+  <div class="modal-body"><form id="form-add-cons"><div class="form-grid">
+    <div class="form-group full"><label>Nombre</label><input type="text" name="nombre" required></div>
+    <div class="form-group full"><label>Descripción</label><input type="text" name="descripcion"></div>
+    <div class="form-group full"><label>Observaciones</label><input type="text" name="observaciones"></div>
+  </div><div class="form-row">
+    <button type="button" class="btn btn-outline" onclick="closeModal('modal-add-cons')">Cancelar</button>
+    <button type="button" class="btn btn-accent" onclick="submitForm('/consumibles/add','form-add-cons','Consumible registrado')">💾 Guardar</button>
+  </div></form></div>
+</div></div>
+
+<!-- MODAL EDIT CONSUMIBLE -->
+<div class="modal-overlay" id="modal-edit-cons"><div class="modal">
+  <div class="modal-header"><h3>✏️ Editar Consumible</h3><button class="modal-close" onclick="closeModal('modal-edit-cons')">✕</button></div>
+  <div class="modal-body"><form id="form-edit-cons"><input type="hidden" name="id"><div class="form-grid">
+    <div class="form-group full"><label>Nombre</label><input type="text" name="nombre" required></div>
+    <div class="form-group full"><label>Descripción</label><input type="text" name="descripcion"></div>
+    <div class="form-group full"><label>Observaciones</label><input type="text" name="observaciones"></div>
+  </div><div class="form-row">
+    <button type="button" class="btn btn-outline" onclick="closeModal('modal-edit-cons')">Cancelar</button>
+    <button type="button" class="btn btn-primary" id="btn-edit-cons">💾 Actualizar</button>
+  </div></form></div>
+</div></div>
+{% endblock %}
+{% block scripts %}<script>
+document.getElementById('btn-edit-cons').addEventListener('click',()=>{
+  const id=document.querySelector('#form-edit-cons [name="id"]').value;
+  submitForm(`/consumibles/edit/${id}`,'form-edit-cons','Consumible actualizado');
+});
+</script>{% endblock %}

@@ -1,0 +1,84 @@
+{% extends 'base.html' %}
+{% block title %}Historial Consumibles{% endblock %}
+{% block topbar_title %}Historial Entrega Consumibles{% endblock %}
+{% block topbar_badge %}Consumibles{% endblock %}
+{% block content %}
+<div class="toolbar">
+  <a href="/consumibles" class="btn btn-outline">← Volver</a>
+  <div class="toolbar-sep"></div>
+  <div class="search-input"><span class="search-icon">🔍</span><input type="text" id="gs" placeholder="Buscar..." oninput="globalSearch('gs','tbl');doRecalc()"></div>
+  <div class="toolbar-sep"></div>
+  <a href="/consumibles/historial/export" class="btn btn-outline">📥 Exportar Excel</a>
+</div>
+
+<div class="card">
+  <div class="card-header"><div class="card-icon">📋</div><h2>Historial de Entregas por Consumible</h2>
+    <span class="badge badge-blue" style="margin-left:auto" id="count-badge">{{ rows|length }} registros</span>
+  </div>
+  <div class="table-wrapper">
+    <table class="data-table" id="tbl">
+      <thead><tr>
+        <th>#</th><th>Fecha</th><th>Consumible</th><th>Descripción</th>
+        <th>Cantidad</th><th>Responsable</th><th>Proyecto</th><th>Observaciones</th>
+      </tr></thead>
+      <tbody>
+        {% set last_cons = namespace(val='') %}
+        {% for r in rows %}
+          {% if r.consumible_nombre != last_cons.val %}
+            {% set last_cons.val = r.consumible_nombre %}
+            <tr class="grupo-header" data-grupo="{{ r.consumible_id }}"
+                style="background:linear-gradient(90deg,rgba(26,58,92,.08),transparent);border-top:2px solid var(--navy-mid)">
+              <td colspan="8" style="padding:8px 14px;font-weight:700;color:var(--navy);font-size:13px">
+                📦 {{ r.consumible_nombre }}
+              </td>
+            </tr>
+          {% endif %}
+          <tr data-cod="{{ r.consumible_id }}">
+            <td>{{ r.id }}</td><td>{{ r.fecha }}</td>
+            <td><strong>{{ r.consumible_nombre }}</strong></td>
+            <td>{{ r.descripcion }}</td>
+            <td class="col-cant">{{ r.cantidad or 0 }}</td>
+            <td>{{ r.responsable_nombre }}</td>
+            <td>{{ r.proyecto }}</td>
+            <td>{{ r.observaciones }}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="8"><div class="table-empty"><div class="empty-icon">📦</div><p>Sin historial</p></div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="card-body" style="padding-top:0">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
+      <div class="total-box"><div><div class="label">Filas Visibles</div></div><div class="value" id="sum-count" style="font-size:20px">{{ rows|length }}</div></div>
+      <div class="total-box" style="background:linear-gradient(135deg,#0F6F4B,#1DB87A)"><div><div class="label">Total Cantidad</div></div><div class="value" id="sum-cant">0</div></div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}<script>
+function doRecalc(){
+  let sumCant=0,count=0;
+  document.querySelectorAll('#tbl tbody tr').forEach(row=>{
+    if(row.classList.contains('grupo-header')||row.style.display==='none') return;
+    const cells=row.querySelectorAll('td');
+    if(cells.length<5) return;
+    sumCant+=parseFloat(cells[4].textContent.trim())||0;
+    count++;
+  });
+  document.getElementById('sum-cant').textContent=sumCant.toFixed(2);
+  document.getElementById('sum-count').textContent=count;
+  document.getElementById('count-badge').textContent=count+' registros';
+  document.querySelectorAll('.grupo-header').forEach(hdr=>{
+    const cod=hdr.dataset.grupo;
+    const hijos=document.querySelectorAll(`#tbl tbody tr[data-cod="${cod}"]`);
+    hdr.style.display=Array.from(hijos).some(r=>r.style.display!=='none')?'':'none';
+  });
+}
+document.addEventListener('DOMContentLoaded',()=>{
+  initTableFilter('tbl');
+  document.querySelectorAll('#tbl .filter-row input').forEach(i=>i.addEventListener('input',()=>{filterTable('tbl');doRecalc();}));
+  document.getElementById('gs').addEventListener('input',()=>doRecalc());
+  doRecalc();
+});
+</script>{% endblock %}

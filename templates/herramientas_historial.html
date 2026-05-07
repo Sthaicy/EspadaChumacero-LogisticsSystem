@@ -1,0 +1,36 @@
+{% extends 'base.html' %}
+{% block title %}Historial Herramientas{% endblock %}
+{% block topbar_title %}Historial Asignaciones{% endblock %}
+{% block topbar_badge %}Herramientas{% endblock %}
+{% block content %}
+<div class="toolbar">
+  <a href="/herramientas" class="btn btn-outline">← Volver</a>
+  <div class="toolbar-sep"></div>
+  <div class="search-input"><span class="search-icon">🔍</span><input type="text" id="gs" placeholder="Buscar..." oninput="globalSearch('gs','tbl')"></div>
+  <div class="toolbar-sep"></div>
+  <a href="/herramientas/historial/export" class="btn btn-outline">📥 Exportar Excel</a>
+</div>
+<div class="card">
+  <div class="card-header"><div class="card-icon">📋</div><h2>Historial Completo de Asignaciones</h2>
+    <span class="badge badge-blue" style="margin-left:auto">{{ rows|length }} registros</span>
+  </div>
+  <div class="table-wrapper">
+    <table class="data-table" id="tbl">
+      <thead><tr><th>#</th><th>Fecha</th><th>Herramienta</th><th>Descripción</th><th>Cant.</th><th>Responsable</th><th>Observaciones</th><th>Estado</th><th>F. Devolución</th></tr></thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td>{{ r.id }}</td><td>{{ r.fecha }}</td>
+          <td><strong>{{ r.herramienta_nombre }}</strong></td>
+          <td>{{ r.descripcion }}</td><td>{{ r.cantidad }}</td>
+          <td>{{ r.responsable_nombre }}</td><td>{{ r.observaciones }}</td>
+          <td>{% if r.devuelto %}<span class="badge badge-green">Devuelto</span>{% else %}<span class="badge badge-accent">En uso</span>{% endif %}</td>
+          <td>{{ r.fecha_devolucion or '—' }}</td>
+        </tr>
+        {% else %}<tr><td colspan="9"><div class="table-empty"><div class="empty-icon">📋</div><p>Sin historial</p></div></td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}<script>initTableFilter('tbl');</script>{% endblock %}

@@ -1,0 +1,130 @@
+{% extends 'base.html' %}
+{% block title %}Compras{% endblock %}
+{% block topbar_title %}Compras{% endblock %}
+{% block topbar_badge %}Gestión{% endblock %}
+{% block content %}
+<div class="toolbar">
+  <button class="btn btn-accent" onclick="openModal('modal-add')">➕ Registrar Compra</button>
+  <div class="toolbar-sep"></div>
+  <div class="search-input"><span class="search-icon">🔍</span><input type="text" id="gs" placeholder="Buscar..." oninput="globalSearch('gs','tbl');doRecalc()"></div>
+  <div class="toolbar-sep"></div>
+  <a href="/compras/export" class="btn btn-outline">📥 Exportar Excel</a>
+</div>
+
+<div class="card">
+  <div class="card-header"><div class="card-icon">🛒</div><h2>Registro de Compras</h2>
+    <span class="badge badge-blue" style="margin-left:auto" id="count-badge">{{ rows|length }} registros</span>
+  </div>
+  <div class="table-wrapper">
+    <table class="data-table" id="tbl">
+      <thead><tr>
+        <th>#</th><th>Fecha</th><th>Proveedor</th><th>Cód.</th><th>Insumo</th>
+        <th>Cant.</th><th>Unidad</th><th>P.Unit.</th><th>P.Total</th>
+        <th>Tipo Doc.</th><th>N° Doc.</th><th>Pago</th><th>Detalle</th>
+        <th class="no-filter">Acciones</th>
+      </tr></thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td>{{ r.id }}</td><td>{{ r.fecha }}</td>
+          <td>{{ r.proveedor_nombre or '—' }}</td>
+          <td><span class="badge badge-blue">{{ r.cod_prod }}</span></td>
+          <td><strong>{{ r.insumo }}</strong></td>
+          <td>{{ r.cantidad }}</td><td>{{ r.unidad }}</td>
+          <td>{{ r.precio_unitario or 0 }}</td>
+          <td class="col-total">{{ r.precio_total or 0 }}</td>
+          <td>{{ r.tipo_documento }}</td><td>{{ r.nro_documento }}</td>
+          <td><span class="badge badge-green">{{ r.tipo_pago or '—' }}</span></td>
+          <td>{{ r.detalle }}</td>
+          <td class="actions">
+            <button class="btn btn-outline btn-sm btn-icon"
+              onclick="populateEdit('modal-edit',{id:{{ r.id }},fecha:'{{ r.fecha }}',proveedor_id:'{{ r.proveedor_id or '' }}',cod_prod:'{{ r.cod_prod|e }}',insumo:'{{ r.insumo|e }}',cantidad:'{{ r.cantidad }}',unidad:'{{ r.unidad|e }}',precio_unitario:'{{ r.precio_unitario or 0 }}',tipo_documento:'{{ r.tipo_documento|e }}',nro_documento:'{{ r.nro_documento|e }}',tipo_pago:'{{ r.tipo_pago|e }}',detalle:'{{ r.detalle|e }}'})">✏️</button>
+            <button class="btn btn-danger btn-sm btn-icon" onclick="deleteRow('/compras/delete/{{ r.id }}')">🗑️</button>
+          </td>
+        </tr>
+        {% else %}<tr><td colspan="14"><div class="table-empty"><div class="empty-icon">🛒</div><p>Sin compras registradas</p></div></td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="card-body" style="padding-top:0">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
+      <div class="total-box"><div><div class="label">Registros Visibles</div></div><div class="value" id="sum-count" style="font-size:20px">{{ rows|length }}</div></div>
+      <div class="total-box" style="background:linear-gradient(135deg,#8C1010,#C01414)"><div><div class="label">Total Compras</div></div><div class="value" id="sum-total">Bs. 0.00</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL ADD -->
+<div class="modal-overlay" id="modal-add"><div class="modal" style="max-width:780px">
+  <div class="modal-header"><h3>➕ Registrar Compra</h3><button class="modal-close" onclick="closeModal('modal-add')">✕</button></div>
+  <div class="modal-body"><form id="form-add"><div class="form-grid">
+    <div class="form-group"><label>Fecha</label><input type="date" name="fecha" value="{{ today }}" required></div>
+    <div class="form-group"><label>Proveedor</label>
+      <select name="proveedor_id"><option value="">— Sin proveedor —</option>
+        {% for p in proveedores %}<option value="{{ p.id }}">{{ p.nombre }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="form-group"><label>Cód. Producto</label><input type="text" name="cod_prod" placeholder="COD-001..." required></div>
+    <div class="form-group"><label>Insumo</label><input type="text" name="insumo" placeholder="Nombre insumo..." required></div>
+    <div class="form-group"><label>Cantidad</label><input type="number" id="add-cant" name="cantidad" step="1" min="0" placeholder="0" oninput="calcTotal('add-cant','add-pu','add-total')" required></div>
+    <div class="form-group"><label>Unidad</label><input type="text" name="unidad" placeholder="kg/lt/m/unid..."></div>
+    <div class="form-group"><label>Precio Unitario (Bs.)</label><input type="number" id="add-pu" name="precio_unitario" step="1" min="0" placeholder="0.00" oninput="calcTotal('add-cant','add-pu','add-total')"></div>
+    <div class="form-group"><label>Precio Total (Bs.)</label><input type="number" id="add-total" name="precio_total" step="1" readonly style="background:#f5f5f5"></div>
+    <div class="form-group"><label>Tipo Documento</label>
+      <select name="tipo_documento"><option value="">—</option><option>Factura</option><option>Recibo</option><option>Nota</option><option>Otro</option></select>
+    </div>
+    <div class="form-group"><label>N° Documento</label><input type="text" name="nro_documento" placeholder="N° doc..."></div>
+    <div class="form-group"><label>Tipo de Pago</label>
+      <select name="tipo_pago"><option value="">—</option><option>Contado</option><option>Crédito</option><option>Transferencia</option><option>Otro</option></select>
+    </div>
+    <div class="form-group full"><label>Detalle</label><input type="text" name="detalle" placeholder="Detalle..."></div>
+  </div><div class="form-row">
+    <button type="button" class="btn btn-outline" onclick="closeModal('modal-add')">Cancelar</button>
+    <button type="button" class="btn btn-accent" onclick="submitForm('/compras/add','form-add','Compra registrada y almacén actualizado')">💾 Guardar</button>
+  </div></form></div>
+</div></div>
+
+<!-- MODAL EDIT -->
+<div class="modal-overlay" id="modal-edit"><div class="modal" style="max-width:780px">
+  <div class="modal-header"><h3>✏️ Editar Compra</h3><button class="modal-close" onclick="closeModal('modal-edit')">✕</button></div>
+  <div class="modal-body"><form id="form-edit"><input type="hidden" name="id"><div class="form-grid">
+    <div class="form-group"><label>Fecha</label><input type="date" name="fecha" required></div>
+    <div class="form-group"><label>Proveedor</label>
+      <select name="proveedor_id"><option value="">—</option>
+        {% for p in proveedores %}<option value="{{ p.id }}">{{ p.nombre }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="form-group"><label>Cód. Producto</label><input type="text" name="cod_prod" required></div>
+    <div class="form-group"><label>Insumo</label><input type="text" name="insumo" required></div>
+    <div class="form-group"><label>Cantidad</label><input type="number" id="edit-cant" name="cantidad" step="1" min="0" oninput="calcTotal('edit-cant','edit-pu','edit-total')"></div>
+    <div class="form-group"><label>Unidad</label><input type="text" name="unidad"></div>
+    <div class="form-group"><label>Precio Unitario</label><input type="number" id="edit-pu" name="precio_unitario" step="1" min="0" oninput="calcTotal('edit-cant','edit-pu','edit-total')"></div>
+    <div class="form-group"><label>Precio Total</label><input type="number" id="edit-total" name="precio_total" step="1" readonly style="background:#f5f5f5"></div>
+    <div class="form-group"><label>Tipo Documento</label>
+      <select name="tipo_documento"><option value="">—</option><option>Factura</option><option>Recibo</option><option>Nota</option><option>Otro</option></select>
+    </div>
+    <div class="form-group"><label>N° Documento</label><input type="text" name="nro_documento"></div>
+    <div class="form-group"><label>Tipo de Pago</label>
+      <select name="tipo_pago"><option value="">—</option><option>Contado</option><option>Crédito</option><option>Transferencia</option><option>Otro</option></select>
+    </div>
+    <div class="form-group full"><label>Detalle</label><input type="text" name="detalle"></div>
+  </div><div class="form-row">
+    <button type="button" class="btn btn-outline" onclick="closeModal('modal-edit')">Cancelar</button>
+    <button type="button" class="btn btn-primary" id="btn-edit">💾 Actualizar</button>
+  </div></form></div>
+</div></div>
+{% endblock %}
+{% block scripts %}<script>
+function doRecalc(){
+  recalcTotals({tableId:'tbl',cols:[{id:'sum-total',colIndex:8}],countId:'sum-count',badgeId:'count-badge',badgeLabel:'registros'});
+}
+document.addEventListener('DOMContentLoaded',()=>{
+  initTableFilter('tbl');
+  document.querySelectorAll('#tbl .filter-row input').forEach(i=>i.addEventListener('input',()=>{filterTable('tbl');doRecalc();}));
+  doRecalc();
+});
+document.getElementById('btn-edit').addEventListener('click',()=>{
+  const id=document.querySelector('#form-edit [name="id"]').value;
+  submitForm(`/compras/edit/${id}`,'form-edit','Compra actualizada');
+});
+</script>{% endblock %}

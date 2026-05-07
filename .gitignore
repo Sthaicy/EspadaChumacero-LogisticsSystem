@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual env
+venv/
+.env
+
+# Database
+*.db
+*.sqlite3
+
+# VSCode
+.vscode/
+
+# Build files
+dist/
+build/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# PyInstaller
+*.spec
