@@ -500,3 +500,48 @@ textarea { resize: vertical; min-height: 78px; }
   font-size: 11px;
   color: #ccc;
 }
+
+/* ── TOM SELECT (autocomplete en selects) ─────────────────────────────────── */
+.ts-wrapper { width: 100%; }
+.ts-control {
+  padding: 8px 12px !important;
+  border: 1.5px solid var(--border) !important;
+  border-radius: 6px !important;
+  font-family: 'Barlow', sans-serif !important;
+  font-size: 13.5px !important;
+  color: var(--text) !important;
+  background: #fff !important;
+  box-shadow: none !important;
+  min-height: 40px !important;
+}
+.ts-wrapper.focus .ts-control {
+  border-color: var(--navy-mid) !important;
+  box-shadow: 0 0 0 3px rgba(26,58,92,.10) !important;
+}
+.ts-dropdown {
+  border: 1.5px solid var(--border) !important;
+  border-radius: 6px !important;
+  box-shadow: var(--shadow-lg) !important;
+  font-family: 'Barlow', sans-serif !important;
+  font-size: 13px !important;
+  margin-top: 2px !important;
+}
+.ts-dropdown .option {
+  padding: 9px 14px !important;
+  color: var(--text) !important;
+}
+.ts-dropdown .option:hover,
+.ts-dropdown .option.active {
+  background: var(--navy) !important;
+  color: #fff !important;
+}
+.ts-dropdown .option.selected {
+  background: rgba(26,58,92,.08) !important;
+  color: var(--navy) !important;
+}
+.ts-dropdown input {
+  padding: 8px 12px !important;
+  border-bottom: 1px solid var(--border) !important;
+  font-family: 'Barlow', sans-serif !important;
+  font-size: 13px !important;
+}

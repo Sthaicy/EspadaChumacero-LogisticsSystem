@@ -50,53 +50,84 @@
 <!-- MODAL SALIDA -->
 <div class="modal-overlay" id="modal-salida"><div class="modal" style="max-width:720px">
   <div class="modal-header"><h3>📤 Registrar Salida de Almacén</h3><button class="modal-close" onclick="closeModal('modal-salida')">✕</button></div>
-  <div class="modal-body"><form id="form-salida"><div class="form-grid">
+  <div class="modal-body"><form id="form-salida">
+    <div class="form-grid">
 
-    <div class="form-group"><label>Producto (de compras)</label>
-      <select id="sel-producto" onchange="fillProducto(this)" required>
-        <option value="">— Seleccionar producto —</option>
-        {% for p in productos %}
-        <option value="{{ p.cod_prod }}" data-insumo="{{ p.insumo|e }}" data-unidad="{{ p.unidad|e }}" data-stock="{{ p.stock or 0 }}">
-          [{{ p.cod_prod }}] {{ p.insumo }} (Stock: {{ p.stock or 0 }} {{ p.unidad }})
-        </option>
-        {% endfor %}
-      </select>
-    </div>
-    <div class="form-group"><label>Fecha</label><input type="date" name="fecha" value="{{ today }}" required></div>
+      <!-- BUSCADOR DE PRODUCTO MANUAL (sin TomSelect) -->
+      <div class="form-group" style="grid-column:1/-1; position:relative">
+        <label>Producto — escribe para buscar</label>
+        <input type="text" id="prod-buscar" autocomplete="off"
+          placeholder="Escribe código o nombre del producto..."
+          oninput="filtrarProductos(this.value)"
+          style="width:100%">
+        <div id="prod-lista" style="
+          display:none; position:absolute; z-index:9999;
+          background:white; border:1px solid #ccc; border-radius:6px;
+          max-height:220px; overflow-y:auto; width:100%;
+          box-shadow:0 4px 12px rgba(0,0,0,.15); top:calc(100% + 2px); left:0">
+        </div>
+        <small id="err-prod" style="color:var(--danger);display:none">⚠️ Debes seleccionar un producto de la lista</small>
+      </div>
 
-    <!-- Campos ocultos/readonly autollenados -->
-    <input type="hidden" name="cod_prod" id="sal-cod">
-    <div class="form-group"><label>Cód. Producto</label>
-      <input type="text" id="sal-cod-display" readonly style="background:#f5f5f5" placeholder="Automático...">
-    </div>
-    <div class="form-group full"><label>Insumo</label>
-      <input type="text" name="insumo" id="sal-insumo" readonly style="background:#f5f5f5" placeholder="Automático...">
-    </div>
-    <div class="form-group"><label>Cantidad</label>
-      <input type="number" name="cantidad" id="sal-cant" step="1" min="1" placeholder="0" required>
-    </div>
-    <div class="form-group"><label>Unidad</label>
-      <input type="text" name="unidad" id="sal-unidad" readonly style="background:#f5f5f5" placeholder="Automático...">
+      <input type="hidden" name="cod_prod" id="sal-cod">
+
+      <div class="form-group"><label>Fecha</label>
+        <input type="date" name="fecha" value="{{ today }}" required>
+      </div>
+
+      <div class="form-group"><label>Cód. Producto</label>
+        <input type="text" id="sal-cod-display" readonly
+          style="background:#f0f4f8;cursor:default" placeholder="Automático...">
+      </div>
+
+      <div class="form-group" style="grid-column:1/-1"><label>Insumo</label>
+        <input type="text" name="insumo" id="sal-insumo" readonly
+          style="background:#f0f4f8;cursor:default" placeholder="Automático...">
+      </div>
+
+      <div class="form-group"><label>Cantidad</label>
+        <input type="number" name="cantidad" id="sal-cant" step="1" min="1" placeholder="0" required>
+        <small id="err-stock" style="color:var(--danger);display:none"></small>
+      </div>
+      <div class="form-group"><label>Unidad</label>
+        <input type="text" name="unidad" id="sal-unidad" readonly
+          style="background:#f0f4f8;cursor:default" placeholder="Automático...">
+      </div>
+
+      <!-- BUSCADOR DE PROYECTO MANUAL (sin TomSelect) -->
+      <div class="form-group" style="position:relative">
+        <label>Proyecto — escribe para buscar</label>
+        <input type="text" id="proy-buscar" autocomplete="off"
+          placeholder="Escribe código o nombre del proyecto..."
+          oninput="filtrarProyectos(this.value)"
+          style="width:100%">
+        <div id="proy-lista" style="
+          display:none; position:absolute; z-index:9999;
+          background:white; border:1px solid #ccc; border-radius:6px;
+          max-height:200px; overflow-y:auto; width:100%;
+          box-shadow:0 4px 12px rgba(0,0,0,.15); top:calc(100% + 2px); left:0">
+        </div>
+        <small id="err-proy" style="color:var(--danger);display:none">⚠️ Debes seleccionar un proyecto</small>
+      </div>
+
+      <div class="form-group"><label>Código Proyecto</label>
+        <input type="text" name="codigo_proyecto" id="sal-codproy" readonly
+          style="background:#f0f4f8;cursor:default" placeholder="Automático...">
+      </div>
+
+      <!-- Campos ocultos para el form -->
+      <input type="hidden" name="proyecto" id="sal-proy-val">
+
+      <div class="form-group"><label>Sobrantes</label>
+        <input type="number" name="sobrantes" step="1" min="0" placeholder="0">
+      </div>
     </div>
 
-    <div class="form-group"><label>Proyecto</label>
-      <select name="proyecto" id="sal-proy" onchange="autoFillCodProy(this)">
-        <option value="">— Seleccionar —</option>
-        {% for p in proyectos %}
-        <option value="{{ p.nombre_proyecto }}" data-cod="{{ p.codigo_proyecto }}">{{ p.nombre_proyecto }}</option>
-        {% endfor %}
-      </select>
+    <div class="form-row">
+      <button type="button" class="btn btn-outline" onclick="closeModal('modal-salida')">Cancelar</button>
+      <button type="button" class="btn btn-accent" onclick="guardarSalida()">💾 Guardar</button>
     </div>
-    <div class="form-group"><label>Código Proyecto</label>
-      <input type="text" name="codigo_proyecto" id="sal-codproy" readonly style="background:#f5f5f5" placeholder="Automático...">
-    </div>
-    <div class="form-group"><label>Sobrantes</label>
-      <input type="number" name="sobrantes" step="1" min="0" placeholder="0">
-    </div>
-  </div><div class="form-row">
-    <button type="button" class="btn btn-outline" onclick="closeModal('modal-salida')">Cancelar</button>
-    <button type="button" class="btn btn-accent" onclick="guardarSalida()">💾 Guardar</button>
-  </div></form></div>
+  </form></div>
 </div></div>
 
 <!-- MODAL EDITAR -->
@@ -117,27 +148,186 @@
 {% block scripts %}<script>
 initTableFilter('tbl');
 
-function fillProducto(sel) {
-  const opt = sel.options[sel.selectedIndex];
-  document.getElementById('sal-cod').value       = opt.value;
-  document.getElementById('sal-cod-display').value = opt.value;
-  document.getElementById('sal-insumo').value    = opt.dataset.insumo || '';
-  document.getElementById('sal-unidad').value    = opt.dataset.unidad || '';
-  const stock = parseFloat(opt.dataset.stock) || 0;
+// ── DATOS EMBEBIDOS DESDE JINJA (sin depender de TomSelect) ───────────────────
+const PRODUCTOS = [
+  {% for p in productos %}
+  { cod: "{{ p.cod_prod|e }}", insumo: "{{ p.insumo|e }}", unidad: "{{ p.unidad|e }}", stock: {{ p.stock or 0 }} },
+  {% endfor %}
+];
+
+const PROYECTOS = [
+  {% for p in proyectos %}
+  { cod: "{{ p.codigo_proyecto|e }}", nombre: "{{ p.nombre_proyecto|e }}" },
+  {% endfor %}
+];
+
+let stockActual = 0;
+let productoSeleccionado = false;
+let proyectoSeleccionado = false;
+
+// ── BUSCADOR PRODUCTO ─────────────────────────────────────────────────────────
+function filtrarProductos(q) {
+  productoSeleccionado = false;
+  limpiarProducto();
+  const lista = document.getElementById('prod-lista');
+  const term  = q.trim().toLowerCase();
+  if (!term) { lista.style.display = 'none'; return; }
+
+  const matches = PRODUCTOS.filter(p =>
+    p.cod.toLowerCase().includes(term) || p.insumo.toLowerCase().includes(term)
+  ).slice(0, 50);
+
+  if (!matches.length) {
+    lista.innerHTML = '<div style="padding:10px 14px;color:#999">Sin resultados</div>';
+    lista.style.display = 'block';
+    return;
+  }
+
+  lista.innerHTML = matches.map(p => `
+    <div onclick="seleccionarProducto('${escHtml(p.cod)}','${escHtml(p.insumo)}','${escHtml(p.unidad)}',${p.stock})"
+      style="padding:9px 14px;cursor:pointer;border-bottom:1px solid #eee;font-size:13px"
+      onmouseover="this.style.background='#f0f4f8'" onmouseout="this.style.background=''">
+      <strong>[${escHtml(p.cod)}]</strong> ${escHtml(p.insumo)}
+      <span style="float:right;color:#666">Stock: ${p.stock} ${escHtml(p.unidad)}</span>
+    </div>`).join('');
+  lista.style.display = 'block';
+}
+
+function seleccionarProducto(cod, insumo, unidad, stock) {
+  productoSeleccionado = true;
+  stockActual = stock;
+
+  document.getElementById('prod-buscar').value      = `[${cod}] ${insumo} — Stock: ${stock} ${unidad}`;
+  document.getElementById('sal-cod').value          = cod;
+  document.getElementById('sal-cod-display').value  = cod;
+  document.getElementById('sal-insumo').value       = insumo;
+  document.getElementById('sal-unidad').value       = unidad;
+
   const cantInput = document.getElementById('sal-cant');
-  cantInput.max = stock;
+  cantInput.max         = stock;
   cantInput.placeholder = `Máx. ${stock}`;
+  cantInput.value       = '';
+
+  document.getElementById('prod-lista').style.display = 'none';
+  document.getElementById('err-prod').style.display   = 'none';
+  document.getElementById('err-stock').style.display  = 'none';
 }
 
-function autoFillCodProy(sel) {
-  document.getElementById('sal-codproy').value = sel.options[sel.selectedIndex]?.dataset.cod || '';
+function limpiarProducto() {
+  stockActual = 0;
+  document.getElementById('sal-cod').value         = '';
+  document.getElementById('sal-cod-display').value = '';
+  document.getElementById('sal-insumo').value      = '';
+  document.getElementById('sal-unidad').value      = '';
+  const c = document.getElementById('sal-cant');
+  c.max = ''; c.placeholder = '0';
 }
 
+// ── BUSCADOR PROYECTO ─────────────────────────────────────────────────────────
+function filtrarProyectos(q) {
+  proyectoSeleccionado = false;
+  document.getElementById('sal-proy-val').value  = '';
+  document.getElementById('sal-codproy').value   = '';
+  const lista = document.getElementById('proy-lista');
+  const term  = q.trim().toLowerCase();
+  if (!term) { lista.style.display = 'none'; return; }
+
+  const matches = PROYECTOS.filter(p =>
+    p.cod.toLowerCase().includes(term) || p.nombre.toLowerCase().includes(term)
+  ).slice(0, 50);
+
+  if (!matches.length) {
+    lista.innerHTML = '<div style="padding:10px 14px;color:#999">Sin resultados</div>';
+    lista.style.display = 'block';
+    return;
+  }
+
+  lista.innerHTML = matches.map(p => `
+    <div onclick="seleccionarProyecto('${escHtml(p.cod)}','${escHtml(p.nombre)}')"
+      style="padding:9px 14px;cursor:pointer;border-bottom:1px solid #eee;font-size:13px"
+      onmouseover="this.style.background='#f0f4f8'" onmouseout="this.style.background=''">
+      <strong>[${escHtml(p.cod)}]</strong> ${escHtml(p.nombre)}
+    </div>`).join('');
+  lista.style.display = 'block';
+}
+
+function seleccionarProyecto(cod, nombre) {
+  proyectoSeleccionado = true;
+  document.getElementById('proy-buscar').value         = `[${cod}] ${nombre}`;
+  document.getElementById('sal-proy-val').value        = nombre;
+  document.getElementById('sal-codproy').value         = cod;
+  document.getElementById('proy-lista').style.display  = 'none';
+  document.getElementById('err-proy').style.display    = 'none';
+}
+
+// Cerrar listas al click fuera
+document.addEventListener('click', e => {
+  if (!e.target.closest('#prod-buscar') && !e.target.closest('#prod-lista'))
+    document.getElementById('prod-lista').style.display = 'none';
+  if (!e.target.closest('#proy-buscar') && !e.target.closest('#proy-lista'))
+    document.getElementById('proy-lista').style.display = 'none';
+});
+
+// Helper para escapar comillas en atributos HTML
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/'/g,'&#39;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+}
+
+// ── RESET AL ABRIR MODAL ──────────────────────────────────────────────────────
+const _origOpenModal2 = openModal;
+openModal = function(id) {
+  _origOpenModal2(id);
+  if (id === 'modal-salida') {
+    productoSeleccionado = false;
+    proyectoSeleccionado = false;
+    document.getElementById('prod-buscar').value        = '';
+    document.getElementById('proy-buscar').value        = '';
+    document.getElementById('prod-lista').style.display = 'none';
+    document.getElementById('proy-lista').style.display = 'none';
+    limpiarProducto();
+    document.getElementById('sal-proy-val').value  = '';
+    document.getElementById('sal-codproy').value   = '';
+    document.getElementById('err-prod').style.display  = 'none';
+    document.getElementById('err-proy').style.display  = 'none';
+    document.getElementById('err-stock').style.display = 'none';
+  } else {
+    const modal = document.getElementById(id);
+    if (modal) setTimeout(() => initSelects(modal), 80);
+  }
+};
+
+// ── VALIDAR CANTIDAD ──────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('sal-cant')?.addEventListener('input', () => {
+    const val = parseFloat(document.getElementById('sal-cant').value) || 0;
+    const errEl = document.getElementById('err-stock');
+    if (stockActual > 0 && val > stockActual) {
+      errEl.textContent = `⚠️ Stock disponible: ${stockActual}`;
+      errEl.style.display = 'block';
+    } else {
+      errEl.style.display = 'none';
+    }
+  });
+});
+
+// ── GUARDAR SALIDA ────────────────────────────────────────────────────────────
 function guardarSalida() {
-  const cod = document.getElementById('sal-cod').value;
-  if (!cod) { toast('Selecciona un producto de la lista', 'error'); return; }
-  const proy = document.querySelector('#form-salida [name="proyecto"]').value;
-  if (!proy) { toast('Selecciona un proyecto', 'error'); return; }
+  const cod     = document.getElementById('sal-cod').value;
+  const cant    = parseFloat(document.getElementById('sal-cant').value) || 0;
+  const proyVal = document.getElementById('sal-proy-val').value;
+
+  if (!cod || !productoSeleccionado) {
+    document.getElementById('err-prod').style.display = 'block';
+    toast('Selecciona un producto de la lista', 'error'); return;
+  }
+  if (cant <= 0) { toast('Ingresa una cantidad mayor a 0', 'error'); return; }
+  if (stockActual > 0 && cant > stockActual) {
+    toast(`Stock insuficiente. Disponible: ${stockActual}`, 'error'); return;
+  }
+  if (!proyVal || !proyectoSeleccionado) {
+    document.getElementById('err-proy').style.display = 'block';
+    toast('Selecciona un proyecto de la lista', 'error'); return;
+  }
   submitForm('/almacen/salida','form-salida','Salida registrada y almacén actualizado');
 }
 
