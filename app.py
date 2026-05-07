@@ -2,6 +2,14 @@
 ESPADACHUMACERO S.R.L. — Control de Inventarios v3.0
 Compatible con ejecución directa (python app.py) y como .exe (PyInstaller)
 
+CAMBIOS v3.0:
+  - Salida de almacén: producto desde lista (solo comprados), unidad y cod autofill
+  - Cantidades/precios con step=1 (suben de uno en uno)
+  - Validación duplicados: código/nombre de proyecto, cod_prod en compras, herramientas, consumibles
+  - Historial servicios y ventas: exportar Excel
+  - Historial: precio total del proyecto en cabecera de cada bloque
+  - Historial: egresos de almacén con costo y total egresos por proyecto
+  - Todo conectado a listas reales (selects desde BD)
 """
 
 import sys, os, socket, threading, webbrowser, tkinter as tk, time
@@ -655,7 +663,7 @@ def almacen():
         UNION
         SELECT codigo_proyecto,nombre_proyecto FROM Ventas WHERE codigo_proyecto IS NOT NULL
         ORDER BY nombre_proyecto''').fetchall()
-    productos = conn.execute('''SELECT DISTINCT cod_prod,insumo,unidad FROM Almacen
+    productos = conn.execute('''SELECT cod_prod,insumo,unidad,stock FROM Almacen
         WHERE cod_prod IS NOT NULL AND cod_prod!='' ORDER BY insumo''').fetchall()
     conn.close()
     return render_template('almacen.html', rows=rows, proyectos=proyectos,
@@ -757,12 +765,30 @@ def compras_add():
 @app.route('/compras/edit/<int:rid>', methods=['POST'])
 def compras_edit(rid):
     d = request.form; cant=float(d.get('cantidad') or 0); pu=float(d.get('precio_unitario') or 0); conn=get_db()
-    old = conn.execute('SELECT * FROM Compras WHERE id=?',(rid,)).fetchone(); diff=cant-float(old['cantidad'])
+    old = conn.execute('SELECT * FROM Compras WHERE id=?',(rid,)).fetchone()
+    old_cod  = old['cod_prod'] or ''
+    new_cod  = (d.get('cod_prod') or '').strip()
+    diff = cant - float(old['cantidad'])
+
     conn.execute('''UPDATE Compras SET fecha=?,proveedor_id=?,cod_prod=?,insumo=?,cantidad=?,
         unidad=?,precio_unitario=?,precio_total=?,tipo_documento=?,nro_documento=?,tipo_pago=?,detalle=? WHERE id=?''',
-        (d['fecha'],d.get('proveedor_id') or None,d['cod_prod'],d['insumo'],cant,d['unidad'],
+        (d['fecha'],d.get('proveedor_id') or None,new_cod,d['insumo'],cant,d['unidad'],
          pu,cant*pu,d['tipo_documento'],d['nro_documento'],d['tipo_pago'],d['detalle'],rid))
-    conn.execute('UPDATE Almacen SET entradas=entradas+?,stock=stock+? WHERE cod_prod=?',(diff,diff,d['cod_prod']))
+
+    if new_cod:
+        existing = conn.execute('SELECT id FROM Almacen WHERE cod_prod=?',(new_cod,)).fetchone()
+        if existing:
+            # Ya existe en almacén: ajustar diferencia de cantidad
+            conn.execute('UPDATE Almacen SET entradas=entradas+?,stock=stock+? WHERE cod_prod=?',(diff,diff,new_cod))
+        else:
+            # cod_prod nuevo (antes estaba vacío): crear fila en Almacén
+            conn.execute('INSERT INTO Almacen(cod_prod,insumo,entradas,salidas,stock,unidad) VALUES(?,?,?,0,?,?)',
+                (new_cod,d['insumo'],cant,cant,d['unidad']))
+        # Si cambió el código, revertir el stock del código viejo
+        if old_cod and old_cod != new_cod:
+            conn.execute('UPDATE Almacen SET entradas=entradas-?,stock=stock-? WHERE cod_prod=?',
+                (float(old['cantidad']),float(old['cantidad']),old_cod))
+
     conn.commit(); conn.close(); return jsonify({'ok':True})
 
 @app.route('/compras/delete/<int:rid>', methods=['POST'])

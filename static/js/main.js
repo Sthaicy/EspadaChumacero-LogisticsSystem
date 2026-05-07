@@ -210,3 +210,45 @@ function recalcTotals(config) {
   if (countId) { const el = document.getElementById(countId); if (el) el.textContent = count; }
   if (badgeId)  { const el = document.getElementById(badgeId);  if (el) el.textContent = count + ' ' + (badgeLabel||'registros'); }
 }
+
+// ── TOM SELECT — autocomplete en todos los <select> ───────────────────────────
+// Llama initSelects() después de que el DOM cargue para activar búsqueda
+// en todos los <select> del documento (excepto los del filtro de tabla).
+function initSelects(root) {
+  const scope = root || document;
+  scope.querySelectorAll('select:not(.ts-hidden-accessible):not(.filter-row select)').forEach(sel => {
+    if (sel.tomselect) return; // ya inicializado
+    new TomSelect(sel, {
+      allowEmptyOption: true,
+      placeholder: sel.options[0]?.text || '— Seleccionar —',
+      maxOptions: 200,
+      render: {
+        no_results: () => '<div class="no-results" style="padding:10px 14px;color:#999">Sin resultados</div>'
+      }
+    });
+  });
+}
+
+// Inicializar al abrir cualquier modal
+const _origOpenModal = openModal;
+openModal = function(id) {
+  _origOpenModal(id);
+  const modal = document.getElementById(id);
+  if (modal) setTimeout(() => initSelects(modal), 50);
+};
+
+// Inicializar los que están visibles en la página (no en modales)
+document.addEventListener('DOMContentLoaded', () => {
+  // No aplicar a selects dentro de modales (se inicia al abrir)
+  document.querySelectorAll('.page-content select, .toolbar select').forEach(sel => {
+    if (!sel.closest('.modal-overlay') && !sel.tomselect) {
+      new TomSelect(sel, {
+        allowEmptyOption: true,
+        maxOptions: 200,
+        render: {
+          no_results: () => '<div class="no-results" style="padding:10px 14px;color:#999">Sin resultados</div>'
+        }
+      });
+    }
+  });
+});
