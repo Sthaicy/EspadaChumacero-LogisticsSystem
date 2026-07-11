@@ -1,0 +1,147 @@
+{% extends 'base.html' %}
+{% block title %}Proyectos{% endblock %}
+{% block topbar_title %}Proyectos{% endblock %}
+{% block topbar_badge %}Almacén{% endblock %}
+{% block content %}
+
+<div class="toolbar">
+  <a href="/almacen" class="btn btn-outline">← Volver a Almacén</a>
+  <div class="toolbar-sep"></div>
+  <button class="btn btn-accent" onclick="openModal('modal-add')">➕ Nuevo Proyecto</button>
+</div>
+
+<!-- TABLA DE PROYECTOS CON GASTO -->
+<div class="card">
+  <div class="card-header">
+    <div class="card-icon">📁</div>
+    <h2>Proyectos Registrados</h2>
+    <span class="badge badge-blue" style="margin-left:auto" id="count-badge">{{ proyectos|length }} proyectos</span>
+  </div>
+  <div class="table-wrapper">
+    <table class="data-table" id="tbl">
+      <thead><tr>
+        <th>#</th>
+        <th>Nombre del Proyecto</th>
+        <th>Material Gastado (Bs.)</th>
+        <th class="no-filter">Acciones</th>
+      </tr></thead>
+      <tbody>
+        {% for p in proyectos %}
+        <tr>
+          <td>{{ loop.index }}</td>
+          <td><strong>{{ p.nombre }}</strong></td>
+          <td class="col-total">
+            {% set gasto = gastos.get(p.nombre, 0) %}
+            {% if gasto > 0 %}
+              <span class="badge badge-accent" style="font-size:14px;padding:4px 10px">Bs. {{ '%.2f'|format(gasto) }}</span>
+            {% else %}
+              <span style="color:#aaa">Bs. 0.00</span>
+            {% endif %}
+          </td>
+          <td class="actions">
+            <button class="btn btn-danger btn-sm btn-icon"
+              onclick="deleteRow('/proyectos/delete/{{ p.id }}')">🗑️</button>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4">
+          <div class="table-empty">
+            <div class="empty-icon">📁</div>
+            <p>No hay proyectos registrados. Agrega el primero.</p>
+          </div>
+        </td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if proyectos %}
+  <div class="card-body" style="padding-top:0">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
+      <div class="total-box">
+        <div><div class="label">Total de Proyectos</div></div>
+        <div class="value" style="font-size:22px">{{ proyectos|length }}</div>
+      </div>
+      <div class="total-box" style="background:linear-gradient(135deg,#8C1010,#C01414)">
+        <div><div class="label">Gasto Total en Material</div></div>
+        <div class="value">Bs. {{ '%.2f'|format(total_gasto) }}</div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+<!-- MODAL NUEVO PROYECTO -->
+<div class="modal-overlay" id="modal-add"><div class="modal" style="max-width:440px">
+  <div class="modal-header">
+    <h3>➕ Nuevo Proyecto</h3>
+    <button class="modal-close" onclick="closeModal('modal-add')">✕</button>
+  </div>
+  <div class="modal-body">
+    <form id="form-add">
+      <div class="form-grid">
+        <div class="form-group full">
+          <label>Nombre del Proyecto</label>
+          <input type="text" name="nombre" id="inp-nombre"
+            placeholder="Ej: Proyecto Planta Norte..."
+            required
+            oninput="checkDupNombre(this.value)">
+          <small id="err-nombre" style="color:var(--danger);display:none">
+            ⚠️ Ya existe un proyecto con ese nombre
+          </small>
+        </div>
+      </div>
+      <div class="form-row">
+        <button type="button" class="btn btn-outline" onclick="closeModal('modal-add')">Cancelar</button>
+        <button type="button" class="btn btn-accent" id="btn-guardar" onclick="guardarProyecto()">💾 Guardar</button>
+      </div>
+    </form>
+  </div>
+</div></div>
+
+{% endblock %}
+
+{% block scripts %}<script>
+document.addEventListener('DOMContentLoaded', () => {
+  initTableFilter('tbl');
+});
+
+let nombreDuplicado = false;
+
+async function checkDupNombre(valor) {
+  const v = valor.trim();
+  const err = document.getElementById('err-nombre');
+  const btn = document.getElementById('btn-guardar');
+  if (!v) { err.style.display = 'none'; nombreDuplicado = false; btn.disabled = false; return; }
+
+  const r = await fetch('/proyectos/check', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nombre: v })
+  });
+  const j = await r.json();
+  if (j.existe) {
+    err.style.display = 'block';
+    nombreDuplicado = true;
+    btn.disabled = true;
+  } else {
+    err.style.display = 'none';
+    nombreDuplicado = false;
+    btn.disabled = false;
+  }
+}
+
+async function guardarProyecto() {
+  if (nombreDuplicado) { toast('Ya existe un proyecto con ese nombre', 'error'); return; }
+  const nombre = document.getElementById('inp-nombre').value.trim();
+  if (!nombre) { toast('Ingresa el nombre del proyecto', 'error'); return; }
+
+  const j = await submitForm('/proyectos/add', 'form-add', 'Proyecto registrado', false);
+  if (j && j.ok) {
+    closeModal('modal-add');
+    setTimeout(() => location.reload(), 600);
+  } else if (j && !j.ok) {
+    toast(j.msg || 'Error al guardar', 'error');
+  }
+}
+</script>{% endblock %}

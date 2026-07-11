@@ -1,0 +1,441 @@
+{% extends 'base.html' %}
+{% block title %}Almacén de Sobrantes{% endblock %}
+{% block topbar_title %}Almacén de Sobrantes{% endblock %}
+{% block topbar_badge %}Sobrantes{% endblock %}
+{% block content %}
+<div class="toolbar">
+  <button class="btn btn-accent" onclick="openModal('modal-entrada')">📥 Registrar Entrada Sobrante</button>
+  <a href="/sobrantes/entradas" class="btn btn-outline">📥 Entradas Almacén Sobrantes</a>
+  <a href="/sobrantes/salidas"  class="btn btn-outline">📤 Salidas Almacén Sobrantes</a>
+  <div class="toolbar-sep"></div>
+  <div class="search-input"><span class="search-icon">🔍</span>
+    <input type="text" id="gs" placeholder="Buscar..." oninput="globalSearch('gs','tbl')">
+  </div>
+  <div class="toolbar-sep"></div>
+  <a href="/sobrantes/export" class="btn btn-outline">📥 Exportar Excel</a>
+</div>
+
+<div class="card">
+  <div class="card-header"><div class="card-icon">♻️</div><h2>Almacén de Sobrantes</h2>
+    <span class="badge badge-blue" style="margin-left:auto">{{ rows|length }} piezas en stock</span>
+  </div>
+  <div class="table-wrapper">
+    <table class="data-table" id="tbl">
+      <thead><tr>
+        <th>Cód. Prod.</th><th>Fecha Entrada</th><th>Insumo</th><th>Espesor</th><th>Tamaño</th>
+        <th>Entradas</th><th>Salidas</th><th>Stock</th><th>Unidad</th>
+        <th>Proyecto Origen</th><th>Descripción</th>
+        <th class="no-filter">Acc.</th>
+      </tr></thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td><span class="badge badge-blue">{{ r.cod_prod }}</span></td>
+          <td>{{ r.fecha_entrada }}</td>
+          <td><strong>{{ r.insumo }}</strong></td>
+          <td>{{ r.espesor or '—' }}</td>
+          <td>{{ r.tamano or '—' }}</td>
+          <td>{{ r.entradas or 0 }}</td>
+          <td>{{ r.salidas or 0 }}</td>
+          <td>{% if (r.stock or 0) <= 0 %}<span class="badge badge-red">{{ r.stock or 0 }}</span>
+              {% else %}<span class="badge badge-green">{{ r.stock }}</span>{% endif %}</td>
+          <td>{{ r.unidad }}</td>
+          <td>{{ r.proyecto_origen or '—' }}</td>
+          <td>{{ r.descripcion or '—' }}</td>
+          <td class="actions">
+            <button class="btn btn-outline btn-sm btn-icon" title="Registrar Salida"
+              onclick="abrirSalida('{{ r.cod_prod|e }}','{{ r.insumo|e }}','{{ r.unidad|e }}',{{ r.stock or 0 }})">📤</button>
+            <button class="btn btn-outline btn-sm btn-icon" title="Editar"
+              onclick="abrirEditarSobrante({{ r.id }},'{{ r.insumo|e }}','{{ r.espesor|e }}','{{ r.tamano|e }}','{{ r.unidad|e }}','{{ r.proyecto_origen|e }}','{{ r.descripcion|e }}')">✏️</button>
+            <button class="btn btn-danger btn-sm btn-icon" title="Eliminar"
+              onclick="deleteRow('/sobrantes/delete/{{ r.id }}')">🗑️</button>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="12"><div class="table-empty"><div class="empty-icon">♻️</div><p>No hay sobrantes registrados.</p></div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- MODAL ENTRADA -->
+<div class="modal-overlay" id="modal-entrada"><div class="modal" style="max-width:720px">
+  <div class="modal-header"><h3>📥 Registrar Entrada de Sobrante</h3><button class="modal-close" onclick="closeModal('modal-entrada')">✕</button></div>
+  <div class="modal-body"><form id="form-entrada">
+    <div class="form-grid">
+
+      <!-- BUSCADOR INSUMO -->
+      <div class="form-group" style="grid-column:1/-1; position:relative">
+        <label>Insumo — escribe para buscar</label>
+        <input type="text" id="ins-buscar" autocomplete="off"
+          placeholder="Escribe el nombre del insumo..."
+          oninput="filtrarInsumos(this.value)"
+          style="width:100%">
+        <div id="ins-lista" style="
+          display:none; position:absolute; z-index:9999;
+          background:white; border:1px solid #ccc; border-radius:6px;
+          max-height:220px; overflow-y:auto; width:100%;
+          box-shadow:0 4px 12px rgba(0,0,0,.15); top:calc(100% + 2px); left:0">
+        </div>
+        <small id="err-ins" style="color:var(--danger);display:none">⚠️ Selecciona un insumo válido de la lista</small>
+      </div>
+
+      <input type="hidden" name="insumo" id="ent-insumo">
+
+      <div class="form-group"><label>Cód. Producto</label>
+        <input type="text" id="ent-cod-display" readonly
+          style="background:#f0f4f8;cursor:default" placeholder="Se genera al elegir insumo...">
+      </div>
+
+      <div class="form-group"><label>Fecha de Entrada</label>
+        <input type="date" name="fecha" id="ent-fecha" value="{{ today }}" required>
+      </div>
+
+      <div class="form-group"><label>Espesor</label>
+        <input type="text" name="espesor" id="ent-espesor" readonly
+          style="background:#f0f4f8;cursor:default" placeholder="Automático (si aplica)...">
+      </div>
+
+      <div class="form-group"><label>Tamaño</label>
+        <input type="text" name="tamano" placeholder="Ej: 375 X 1200 mm" required>
+      </div>
+
+      <div class="form-group"><label>Unidad</label>
+        <input type="text" name="unidad" id="ent-unidad" readonly
+          style="background:#f0f4f8;cursor:default" placeholder="Automático...">
+      </div>
+
+      <div class="form-group"><label>Cantidad</label>
+        <input type="number" name="cantidad" step="1" min="1" value="1" placeholder="1" required>
+      </div>
+
+      <!-- BUSCADOR PROYECTO ORIGEN -->
+      <div class="form-group full" style="position:relative">
+        <label>Proyecto Origen — escribe para buscar</label>
+        <input type="text" id="ent-proy-buscar" autocomplete="off"
+          placeholder="Escribe el nombre del proyecto..."
+          oninput="filtrarProyectosEntrada(this.value)"
+          style="width:100%">
+        <div id="ent-proy-lista" style="
+          display:none; position:absolute; z-index:9999;
+          background:white; border:1px solid #ccc; border-radius:6px;
+          max-height:200px; overflow-y:auto; width:100%;
+          box-shadow:0 4px 12px rgba(0,0,0,.15); top:calc(100% + 2px); left:0">
+        </div>
+      </div>
+      <input type="hidden" name="proyecto_origen" id="ent-proy-val">
+
+      <div class="form-group full"><label>Descripción</label>
+        <textarea name="descripcion" placeholder="Ej: Stock de almacén...">STOCK DE ALMACEN</textarea>
+      </div>
+    </div>
+
+    <div class="form-row">
+      <button type="button" class="btn btn-outline" onclick="closeModal('modal-entrada')">Cancelar</button>
+      <button type="button" class="btn btn-accent" onclick="guardarEntrada()">💾 Guardar</button>
+    </div>
+  </form></div>
+</div></div>
+
+<!-- MODAL SALIDA -->
+<div class="modal-overlay" id="modal-salida"><div class="modal" style="max-width:620px">
+  <div class="modal-header"><h3>📤 Registrar Salida de Sobrante</h3><button class="modal-close" onclick="closeModal('modal-salida')">✕</button></div>
+  <div class="modal-body"><form id="form-salida">
+    <div class="form-grid">
+      <input type="hidden" name="cod_prod" id="sal-cod">
+      <input type="hidden" name="insumo" id="sal-insumo">
+
+      <div class="form-group"><label>Cód. Producto</label>
+        <input type="text" id="sal-cod-display" readonly style="background:#f0f4f8;cursor:default"></div>
+      <div class="form-group"><label>Fecha de Salida</label>
+        <input type="date" name="fecha" id="sal-fecha" value="{{ today }}" required></div>
+
+      <div class="form-group full"><label>Insumo</label>
+        <input type="text" id="sal-insumo-display" readonly style="background:#f0f4f8;cursor:default"></div>
+
+      <div class="form-group"><label>Cantidad</label>
+        <input type="number" name="cantidad" id="sal-cant" step="1" min="1" required>
+        <small id="sal-err-stock" style="color:var(--danger);display:none"></small>
+      </div>
+      <div class="form-group"><label>Unidad</label>
+        <input type="text" name="unidad" id="sal-unidad" readonly style="background:#f0f4f8;cursor:default"></div>
+
+      <!-- BUSCADOR PROYECTO DESTINO -->
+      <div class="form-group full" style="position:relative">
+        <label>Proyecto Destino — escribe para buscar</label>
+        <input type="text" id="sal-proy-buscar" autocomplete="off"
+          placeholder="Escribe el nombre del proyecto..."
+          oninput="filtrarProyectosSalida(this.value)"
+          style="width:100%">
+        <div id="sal-proy-lista" style="
+          display:none; position:absolute; z-index:9999;
+          background:white; border:1px solid #ccc; border-radius:6px;
+          max-height:200px; overflow-y:auto; width:100%;
+          box-shadow:0 4px 12px rgba(0,0,0,.15); top:calc(100% + 2px); left:0">
+        </div>
+      </div>
+      <input type="hidden" name="proyecto_destino" id="sal-proy-val">
+    </div>
+
+    <div class="form-row">
+      <button type="button" class="btn btn-outline" onclick="closeModal('modal-salida')">Cancelar</button>
+      <button type="button" class="btn btn-accent" onclick="guardarSalida()">💾 Guardar</button>
+    </div>
+  </form></div>
+</div></div>
+
+<!-- MODAL EDITAR -->
+<div class="modal-overlay" id="modal-edit"><div class="modal" style="max-width:640px">
+  <div class="modal-header"><h3>✏️ Editar Sobrante</h3><button class="modal-close" onclick="closeModal('modal-edit')">✕</button></div>
+  <div class="modal-body"><form id="form-edit"><input type="hidden" name="id"><div class="form-grid">
+    <div class="form-group full"><label>Insumo</label>
+      <input type="text" id="edit-insumo-display" readonly style="background:#f0f4f8;cursor:default"></div>
+    <div class="form-group"><label>Espesor</label>
+      <input type="text" id="edit-espesor-display" readonly style="background:#f0f4f8;cursor:default"></div>
+    <div class="form-group"><label>Unidad</label>
+      <input type="text" id="edit-unidad-display" readonly style="background:#f0f4f8;cursor:default"></div>
+    <div class="form-group full"><label>Tamaño</label><input type="text" name="tamano" id="edit-tamano"></div>
+
+    <!-- BUSCADOR DE PROYECTO ORIGEN (conectado a la BD de Proyectos) -->
+    <div class="form-group full" style="position:relative">
+      <label>Proyecto Origen — escribe para buscar</label>
+      <input type="text" id="edit-proy-buscar" autocomplete="off"
+        placeholder="Escribe el nombre del proyecto..."
+        oninput="filtrarProyectosEdit(this.value)"
+        style="width:100%">
+      <div id="edit-proy-lista" style="
+        display:none; position:absolute; z-index:9999;
+        background:white; border:1px solid #ccc; border-radius:6px;
+        max-height:200px; overflow-y:auto; width:100%;
+        box-shadow:0 4px 12px rgba(0,0,0,.15); top:calc(100% + 2px); left:0">
+      </div>
+    </div>
+    <input type="hidden" name="proyecto_origen" id="edit-proy-val">
+
+    <div class="form-group full"><label>Descripción</label><input type="text" name="descripcion" id="edit-descripcion"></div>
+  </div>
+  <div class="form-row">
+    <button type="button" class="btn btn-outline" onclick="closeModal('modal-edit')">Cancelar</button>
+    <button type="button" class="btn btn-primary" id="btn-edit">💾 Actualizar</button>
+  </div></form></div>
+</div></div>
+{% endblock %}
+
+{% block scripts %}<script>
+initTableFilter('tbl');
+
+// ── DATOS EMBEBIDOS ────────────────────────────────────────────────────────────
+const INSUMOS = [
+  {% for i in insumos %}
+  { nombre: "{{ i.nombre|e }}", unidad: "{{ i.unidad|e }}" },
+  {% endfor %}
+];
+
+const PROYECTOS = [
+  {% for p in proyectos %}
+  { nombre: "{{ p.nombre|e }}" },
+  {% endfor %}
+];
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/'/g,'&#39;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+}
+
+let insumoSeleccionado = false;
+
+// ── BUSCADOR INSUMO (entrada) ──────────────────────────────────────────────────
+function filtrarInsumos(q) {
+  insumoSeleccionado = false;
+  document.getElementById('ent-insumo').value = '';
+  document.getElementById('ent-unidad').value = '';
+  document.getElementById('ent-cod-display').value = '';
+  const lista = document.getElementById('ins-lista');
+  const term = q.trim().toLowerCase();
+  if (!term) { lista.style.display = 'none'; return; }
+
+  const matches = INSUMOS.filter(i => i.nombre.toLowerCase().includes(term)).slice(0, 50);
+  if (!matches.length) {
+    lista.innerHTML = '<div style="padding:10px 14px;color:#999">Sin resultados. Agrégalo en Configuraciones.</div>';
+    lista.style.display = 'block';
+    return;
+  }
+  lista.innerHTML = matches.map(i => `
+    <div onclick="seleccionarInsumo('${escHtml(i.nombre)}','${escHtml(i.unidad)}')"
+      style="padding:9px 14px;cursor:pointer;border-bottom:1px solid #eee;font-size:13px"
+      onmouseover="this.style.background='#f0f4f8'" onmouseout="this.style.background=''">
+      ${escHtml(i.nombre)} <span style="float:right;color:#666">${escHtml(i.unidad)}</span>
+    </div>`).join('');
+  lista.style.display = 'block';
+}
+
+async function seleccionarInsumo(nombre, unidad) {
+  insumoSeleccionado = true;
+  document.getElementById('ins-buscar').value = nombre;
+  document.getElementById('ent-insumo').value = nombre;
+  document.getElementById('ent-unidad').value = unidad;
+  document.getElementById('ins-lista').style.display = 'none';
+  document.getElementById('err-ins').style.display = 'none';
+
+  // Vista previa del próximo código de producto + espesor del catálogo (se confirma al guardar)
+  try {
+    const r = await fetch(`/api/sobrantes/siguiente_cod/${encodeURIComponent(nombre)}`);
+    const j = await r.json();
+    document.getElementById('ent-cod-display').value = j.cod_prod || '—';
+    document.getElementById('ent-espesor').value = j.espesor || '';
+  } catch {}
+}
+
+// ── BUSCADOR PROYECTO (entrada) ────────────────────────────────────────────────
+function filtrarProyectosEntrada(q) {
+  document.getElementById('ent-proy-val').value = '';
+  const lista = document.getElementById('ent-proy-lista');
+  const term = q.trim().toLowerCase();
+  if (!term) { lista.style.display = 'none'; return; }
+  const matches = PROYECTOS.filter(p => p.nombre.toLowerCase().includes(term)).slice(0, 50);
+  lista.innerHTML = matches.length ? matches.map(p => `
+    <div onclick="seleccionarProyectoEntrada('${escHtml(p.nombre)}')"
+      style="padding:9px 14px;cursor:pointer;border-bottom:1px solid #eee;font-size:13px"
+      onmouseover="this.style.background='#f0f4f8'" onmouseout="this.style.background=''">
+      📁 ${escHtml(p.nombre)}
+    </div>`).join('') : '<div style="padding:10px 14px;color:#999">Sin resultados</div>';
+  lista.style.display = 'block';
+}
+function seleccionarProyectoEntrada(nombre) {
+  document.getElementById('ent-proy-buscar').value = nombre;
+  document.getElementById('ent-proy-val').value = nombre;
+  document.getElementById('ent-proy-lista').style.display = 'none';
+}
+
+// ── BUSCADOR PROYECTO (salida) ─────────────────────────────────────────────────
+function filtrarProyectosSalida(q) {
+  document.getElementById('sal-proy-val').value = '';
+  const lista = document.getElementById('sal-proy-lista');
+  const term = q.trim().toLowerCase();
+  if (!term) { lista.style.display = 'none'; return; }
+  const matches = PROYECTOS.filter(p => p.nombre.toLowerCase().includes(term)).slice(0, 50);
+  lista.innerHTML = matches.length ? matches.map(p => `
+    <div onclick="seleccionarProyectoSalida('${escHtml(p.nombre)}')"
+      style="padding:9px 14px;cursor:pointer;border-bottom:1px solid #eee;font-size:13px"
+      onmouseover="this.style.background='#f0f4f8'" onmouseout="this.style.background=''">
+      📁 ${escHtml(p.nombre)}
+    </div>`).join('') : '<div style="padding:10px 14px;color:#999">Sin resultados</div>';
+  lista.style.display = 'block';
+}
+function seleccionarProyectoSalida(nombre) {
+  document.getElementById('sal-proy-buscar').value = nombre;
+  document.getElementById('sal-proy-val').value = nombre;
+  document.getElementById('sal-proy-lista').style.display = 'none';
+}
+
+// Cerrar listas al hacer click fuera
+document.addEventListener('click', e => {
+  if (!e.target.closest('#ins-buscar') && !e.target.closest('#ins-lista'))
+    document.getElementById('ins-lista').style.display = 'none';
+  if (!e.target.closest('#ent-proy-buscar') && !e.target.closest('#ent-proy-lista'))
+    document.getElementById('ent-proy-lista').style.display = 'none';
+  if (!e.target.closest('#sal-proy-buscar') && !e.target.closest('#sal-proy-lista'))
+    document.getElementById('sal-proy-lista').style.display = 'none';
+});
+
+// ── ABRIR SALIDA DESDE FILA ────────────────────────────────────────────────────
+let stockSalidaActual = 0;
+function abrirSalida(cod, insumo, unidad, stock) {
+  stockSalidaActual = stock;
+  document.getElementById('sal-cod').value = cod;
+  document.getElementById('sal-cod-display').value = cod;
+  document.getElementById('sal-insumo').value = insumo;
+  document.getElementById('sal-insumo-display').value = insumo;
+  document.getElementById('sal-unidad').value = unidad;
+  document.getElementById('sal-cant').max = stock;
+  document.getElementById('sal-cant').placeholder = `Máx. ${stock}`;
+  document.getElementById('sal-proy-buscar').value = '';
+  document.getElementById('sal-proy-val').value = '';
+  openModal('modal-salida');
+}
+
+// ── RESET AL ABRIR MODAL ENTRADA ───────────────────────────────────────────────
+const _origOpenModalSob = openModal;
+openModal = function(id) {
+  _origOpenModalSob(id);
+  if (id === 'modal-entrada') {
+    insumoSeleccionado = false;
+    document.getElementById('ins-buscar').value = '';
+    document.getElementById('ent-insumo').value = '';
+    document.getElementById('ent-unidad').value = '';
+    document.getElementById('ent-cod-display').value = '';
+    document.getElementById('ent-espesor').value = '';
+    document.getElementById('ent-proy-buscar').value = '';
+    document.getElementById('ent-proy-val').value = '';
+    document.getElementById('ins-lista').style.display = 'none';
+    document.getElementById('ent-proy-lista').style.display = 'none';
+    document.getElementById('err-ins').style.display = 'none';
+  } else {
+    const modal = document.getElementById(id);
+    if (modal) setTimeout(() => initSelects(modal), 80);
+  }
+};
+
+// ── GUARDAR ENTRADA ────────────────────────────────────────────────────────────
+function guardarEntrada() {
+  if (!insumoSeleccionado || !document.getElementById('ent-insumo').value) {
+    document.getElementById('err-ins').style.display = 'block';
+    toast('Selecciona un insumo válido de la lista', 'error');
+    return;
+  }
+  submitForm('/sobrantes/entrada', 'form-entrada', 'Entrada registrada con nuevo código de producto');
+}
+
+// ── GUARDAR SALIDA ─────────────────────────────────────────────────────────────
+function guardarSalida() {
+  const cant = parseFloat(document.getElementById('sal-cant').value) || 0;
+  if (cant <= 0) { toast('Ingresa una cantidad mayor a 0', 'error'); return; }
+  if (stockSalidaActual > 0 && cant > stockSalidaActual) {
+    toast(`Stock insuficiente. Disponible: ${stockSalidaActual}`, 'error');
+    return;
+  }
+  submitForm('/sobrantes/salida', 'form-salida', 'Salida registrada y stock actualizado');
+}
+
+// ── EDITAR SOBRANTE ────────────────────────────────────────────────────────────
+function abrirEditarSobrante(id, insumo, espesor, tamano, unidad, proyectoOrigen, descripcion) {
+  document.querySelector('#form-edit [name="id"]').value = id;
+  document.getElementById('edit-insumo-display').value = insumo;
+  document.getElementById('edit-espesor-display').value = espesor || '—';
+  document.getElementById('edit-unidad-display').value = unidad;
+  document.getElementById('edit-tamano').value = tamano || '';
+  document.getElementById('edit-proy-buscar').value = proyectoOrigen || '';
+  document.getElementById('edit-proy-val').value = proyectoOrigen || '';
+  document.getElementById('edit-descripcion').value = descripcion || '';
+  openModal('modal-edit');
+}
+
+function filtrarProyectosEdit(q) {
+  document.getElementById('edit-proy-val').value = '';
+  const lista = document.getElementById('edit-proy-lista');
+  const term = q.trim().toLowerCase();
+  if (!term) { lista.style.display = 'none'; return; }
+  const matches = PROYECTOS.filter(p => p.nombre.toLowerCase().includes(term)).slice(0, 50);
+  lista.innerHTML = matches.length ? matches.map(p => `
+    <div onclick="seleccionarProyectoEdit('${escHtml(p.nombre)}')"
+      style="padding:9px 14px;cursor:pointer;border-bottom:1px solid #eee;font-size:13px"
+      onmouseover="this.style.background='#f0f4f8'" onmouseout="this.style.background=''">
+      📁 ${escHtml(p.nombre)}
+    </div>`).join('') : '<div style="padding:10px 14px;color:#999">Sin resultados</div>';
+  lista.style.display = 'block';
+}
+function seleccionarProyectoEdit(nombre) {
+  document.getElementById('edit-proy-buscar').value = nombre;
+  document.getElementById('edit-proy-val').value = nombre;
+  document.getElementById('edit-proy-lista').style.display = 'none';
+}
+document.addEventListener('click', e => {
+  if (!e.target.closest('#edit-proy-buscar') && !e.target.closest('#edit-proy-lista'))
+    document.getElementById('edit-proy-lista').style.display = 'none';
+});
+
+document.getElementById('btn-edit').addEventListener('click', () => {
+  const id = document.querySelector('#form-edit [name="id"]').value;
+  submitForm(`/sobrantes/edit/${id}`, 'form-edit', 'Sobrante actualizado');
+});
+</script>{% endblock %}

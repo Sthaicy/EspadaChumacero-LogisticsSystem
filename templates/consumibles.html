@@ -43,7 +43,7 @@
       </select>
     </div>
     <div class="form-group full"><label>Descripción</label><input type="text" name="descripcion" placeholder="Descripción..."></div>
-    <div class="form-group"><label>Cantidad</label><input type="number" name="cantidad" step="0.01" min="0" placeholder="0" required></div>
+    <div class="form-group"><label>Cantidad</label><input type="number" name="cantidad" step="1" min="0" placeholder="0" required></div>
     <div class="form-group"><label>Responsable</label>
       <select name="responsable_id" required><option value="">— Seleccionar —</option>
         {% for t in trabajadores %}<option value="{{ t.id }}">{{ t.nombre }}</option>{% endfor %}

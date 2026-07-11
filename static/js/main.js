@@ -23,12 +23,20 @@ function closeModal(id) {
 }
 
 document.addEventListener('click', e => {
-  if (e.target.classList.contains('modal-overlay')) e.target.classList.remove('open');
+  if (e.target.classList.contains('modal-overlay')) {
+    e.target.classList.remove('open');
+    const form = e.target.querySelector('form');
+    if (form) form.reset();
+  }
 });
 
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape')
-    document.querySelectorAll('.modal-overlay.open').forEach(m => m.classList.remove('open'));
+    document.querySelectorAll('.modal-overlay.open').forEach(m => {
+      m.classList.remove('open');
+      const form = m.querySelector('form');
+      if (form) form.reset();
+    });
 });
 
 // ── AJAX ───────────────────────────────────────────────────────────────────────
@@ -40,6 +48,7 @@ async function submitForm(url, formId, successMsg, reloadOnSuccess = true) {
     const j = await r.json();
     if (j.ok) {
       toast(successMsg, 'success');
+      form.reset();
       if (reloadOnSuccess) setTimeout(() => location.reload(), 700);
     } else {
       toast(j.msg || 'Error al procesar', 'error');

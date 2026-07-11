@@ -35,6 +35,73 @@ BASE_DIR    = get_base_dir()
 RUNTIME_DIR = get_runtime_dir()
 DB_PATH     = os.path.join(RUNTIME_DIR, 'chumacero.db')
 
+# ── BACKUP AUTOMÁTICO ──────────────────────────────────────────────────────────
+# Carpeta de backups: ./backups junto al ejecutable (separada de la carpeta de la BD)
+BACKUP_DIR  = os.path.join(RUNTIME_DIR, 'backups')
+BACKUP_LOG  = os.path.join(BACKUP_DIR, 'backup_log.txt')
+MAX_BACKUPS = 30
+
+def _log_backup(msg):
+    """Escribe una línea en el log de backup."""
+    try:
+        os.makedirs(BACKUP_DIR, exist_ok=True)
+        ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        with open(BACKUP_LOG, 'a', encoding='utf-8') as f:
+            f.write(f'[{ts}] {msg}\n')
+    except Exception as e:
+        print(f'[BACKUP LOG ERROR] {e}')
+
+def hacer_backup():
+    """Crea un backup comprimido de la BD y limpia los más antiguos."""
+    try:
+        os.makedirs(BACKUP_DIR, exist_ok=True)
+        ts   = datetime.now().strftime('%Y%m%d_%H%M%S')
+        name = f'backup_chumacero_{ts}.zip'
+        dest = os.path.join(BACKUP_DIR, name)
+
+        if not os.path.exists(DB_PATH):
+            _log_backup(f'ERROR — BD no encontrada en: {DB_PATH}')
+            return
+
+        # Crear ZIP con la BD
+        with zipfile.ZipFile(dest, 'w', zipfile.ZIP_DEFLATED) as zf:
+            zf.write(DB_PATH, arcname='chumacero.db')
+
+        size_kb = os.path.getsize(dest) // 1024
+        _log_backup(f'OK    — {name}  ({size_kb} KB)')
+
+        # Mantener solo los últimos MAX_BACKUPS
+        archivos = sorted(
+            [f for f in os.listdir(BACKUP_DIR)
+             if f.startswith('backup_chumacero_') and f.endswith('.zip')],
+            reverse=True
+        )
+        for viejo in archivos[MAX_BACKUPS:]:
+            os.remove(os.path.join(BACKUP_DIR, viejo))
+            _log_backup(f'BORRADO — {viejo} (límite {MAX_BACKUPS} backups)')
+
+    except Exception as e:
+        _log_backup(f'ERROR — {e}')
+
+def _scheduler_backup():
+    """Hilo que espera hasta las 12:00 y ejecuta el backup cada 24 h."""
+    _log_backup('Scheduler iniciado')
+    while True:
+        ahora   = datetime.now()
+        # Próxima ejecución: hoy a las 12:00, o mañana si ya pasó
+        proxima = ahora.replace(hour=12, minute=0, second=0, microsecond=0)
+        if ahora >= proxima:
+            from datetime import timedelta
+            proxima += timedelta(days=1)
+        segundos = (proxima - ahora).total_seconds()
+        time.sleep(segundos)
+        hacer_backup()
+        time.sleep(60)   # pequeña pausa antes de recalcular el ciclo siguiente
+
+def iniciar_scheduler_backup():
+    t = threading.Thread(target=_scheduler_backup, daemon=True, name='BackupScheduler')
+    t.start()
+
 from flask import Flask, render_template, request, jsonify, send_file
 
 app = Flask(__name__,
@@ -128,10 +195,74 @@ def init_db():
         proyecto TEXT, observaciones TEXT,
         FOREIGN KEY(consumible_id) REFERENCES Consumibles(id),
         FOREIGN KEY(responsable_id) REFERENCES Trabajadores(id))''')
+    c.execute('''CREATE TABLE IF NOT EXISTS Proyectos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        nombre TEXT UNIQUE NOT NULL)''')
+
+    # ── CATÁLOGO DE INSUMOS ──
+    # Cada insumo es único y tiene su propio código de producto fijo.
+    # Ese código funciona como PREFIJO para el correlativo del Almacén de Sobrantes
+    # (ej: cod_prod "10MT_INX" → piezas de sobrante "10MT_INX_01", "10MT_INX_02"...).
+    # El espesor es opcional: hay insumos que no se diferencian por espesor.
+    c.execute('''CREATE TABLE IF NOT EXISTS Insumos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        cod_prod TEXT UNIQUE NOT NULL,
+        nombre TEXT NOT NULL,
+        unidad TEXT NOT NULL,
+        espesor TEXT,
+        detalle TEXT)''')
+
+    # Contador correlativo persistente por cod_prod de insumo — nunca decrece ni se reutiliza
+    c.execute('''CREATE TABLE IF NOT EXISTS Sobrantes_Contadores (
+        cod_insumo TEXT PRIMARY KEY,
+        ultimo INTEGER DEFAULT 0)''')
+
+    # Contador correlativo persistente para codigo_proyecto en Órdenes (SERV-) y Ventas (VENT-)
+    c.execute('''CREATE TABLE IF NOT EXISTS Codigos_Proyecto_Contadores (
+        prefijo TEXT PRIMARY KEY,
+        ultimo INTEGER DEFAULT 0)''')
+
+    # ── CATÁLOGOS CONFIGURABLES PARA COMPRAS ──
+    c.execute('''CREATE TABLE IF NOT EXISTS Tipos_Pago (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        valor TEXT UNIQUE NOT NULL)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS Tipos_Documento (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        valor TEXT UNIQUE NOT NULL)''')
+
+    # ── ALMACÉN DE SOBRANTES ── (cada fila = una pieza/lote único de sobrante)
+    c.execute('''CREATE TABLE IF NOT EXISTS Almacen_Sobrantes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        cod_prod TEXT UNIQUE, fecha_entrada TEXT, insumo TEXT, espesor TEXT, tamano TEXT,
+        unidad TEXT, entradas REAL DEFAULT 1, salidas REAL DEFAULT 0, stock REAL DEFAULT 0,
+        proyecto_origen TEXT, descripcion TEXT)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS Entradas_Almacen_Sobrantes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        cod_prod TEXT, fecha TEXT, insumo TEXT, espesor TEXT, tamano TEXT,
+        unidad TEXT, cantidad REAL DEFAULT 0,
+        proyecto_origen TEXT, descripcion TEXT)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS Salidas_Almacen_Sobrantes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        cod_prod TEXT, fecha TEXT, insumo TEXT,
+        cantidad REAL DEFAULT 0, unidad TEXT,
+        proyecto_origen TEXT, proyecto_destino TEXT)''')
+
+    # Migración defensiva: agrega proyecto_origen si la tabla ya existía sin esa columna
+    cols = [r['name'] for r in c.execute("PRAGMA table_info(Salidas_Almacen_Sobrantes)").fetchall()]
+    if 'proyecto_origen' not in cols:
+        c.execute('ALTER TABLE Salidas_Almacen_Sobrantes ADD COLUMN proyecto_origen TEXT')
+
+    # Siembra inicial de Tipos_Pago / Tipos_Documento (solo si están vacíos)
+    if not c.execute('SELECT 1 FROM Tipos_Pago').fetchone():
+        for v in ['Caja Chica','Unión','Ganadero','BCP','Otros']:
+            c.execute('INSERT OR IGNORE INTO Tipos_Pago(valor) VALUES(?)', (v,))
+    if not c.execute('SELECT 1 FROM Tipos_Documento').fetchone():
+        for v in ['Factura','Recibo','Nota','Otro']:
+            c.execute('INSERT OR IGNORE INTO Tipos_Documento(valor) VALUES(?)', (v,))
+
     conn.commit(); conn.close()
 
 TIPOS_SERVICIO = ['Corte CNC','Corte y Plegado','Tornería','Fresado','Soldadura','Taladrado']
-TIPOS_PAGO     = ['Caja Chica','Unión','Ganadero','BCP','Otros']
 
 # ── BANDEJA DEL SISTEMA ────────────────────────────────────────────────────────
 def obtener_ip_red():
@@ -190,6 +321,8 @@ def mostrar_info_ip():
 def detener_servidor(icono, item): icono.stop(); os._exit(0)
 def abrir_navegador_bandeja(icono, item): webbrowser.open("http://127.0.0.1:5000")
 def mostrar_ip(icono, item): mostrar_info_ip()
+def backup_manual_bandeja(icono, item):
+    threading.Thread(target=hacer_backup, daemon=True).start()
 
 def crear_icono_bandeja():
     try:
@@ -208,6 +341,7 @@ def crear_icono_bandeja():
     menu = pystray.Menu(
         pystray.MenuItem("🌐 Abrir navegador", abrir_navegador_bandeja),
         pystray.MenuItem("📡 Mostrar IP de red", mostrar_ip),
+        pystray.MenuItem("💾 Hacer backup ahora", backup_manual_bandeja),
         pystray.MenuItem("🟢 EspadaChumacero - Activo", None, enabled=False),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem("❌ Salir", detener_servidor))
@@ -387,29 +521,25 @@ def trabajadores_export():
 @app.route('/ordenes')
 def ordenes():
     conn = get_db()
-    clientes  = conn.execute('SELECT id,nombre FROM Clientes ORDER BY nombre').fetchall()
-    proyectos = conn.execute('''SELECT s.*,c.nombre as cliente_nombre
-        FROM Servicios s LEFT JOIN Clientes c ON s.cliente_id=c.id
-        WHERE s.saldo_cobrar > 0 ORDER BY s.id DESC''').fetchall()
+    proyectos = conn.execute('''SELECT * FROM Servicios
+        WHERE saldo_cobrar > 0 ORDER BY id DESC''').fetchall()
+    tipos_pago = [r['valor'] for r in conn.execute('SELECT valor FROM Tipos_Pago ORDER BY valor').fetchall()]
     conn.close()
-    return render_template('ordenes.html', clientes=clientes, proyectos=proyectos,
-        today=date.today().isoformat(), tipos_servicio=TIPOS_SERVICIO, tipos_pago=TIPOS_PAGO)
+    return render_template('ordenes.html', proyectos=proyectos,
+        today=date.today().isoformat(), tipos_servicio=TIPOS_SERVICIO, tipos_pago=tipos_pago)
 
 @app.route('/ordenes/registrar', methods=['POST'])
 def ordenes_registrar():
     d = request.form; precio = float(d.get('precio_total') or 0); conn = get_db()
-    # Verificar duplicados
-    cod = d.get('codigo_proyecto','').strip()
     nom = d.get('nombre_proyecto','').strip()
-    if conn.execute('SELECT id FROM Servicios WHERE codigo_proyecto=?',(cod,)).fetchone():
-        conn.close(); return jsonify({'ok':False,'msg':f'Ya existe un proyecto con el código "{cod}"'})
     if conn.execute('SELECT id FROM Servicios WHERE nombre_proyecto=?',(nom,)).fetchone():
         conn.close(); return jsonify({'ok':False,'msg':f'Ya existe un proyecto con el nombre "{nom}"'})
+    cod = _siguiente_codigo_proyecto(conn, 'SERV')
     conn.execute('''INSERT INTO Servicios(fecha,codigo_proyecto,nombre_proyecto,descripcion,
         cliente_id,tipo_servicio,precio_total,saldo_cobrar) VALUES(?,?,?,?,?,?,?,?)''',
         (d['fecha'],cod,nom,d['descripcion'],d.get('cliente_id') or None,
          d.get('tipo_servicio',''),precio,precio))
-    conn.commit(); conn.close(); return jsonify({'ok':True})
+    conn.commit(); conn.close(); return jsonify({'ok':True,'codigo_proyecto':cod})
 
 @app.route('/ordenes/pago/<int:sid>', methods=['POST'])
 def ordenes_pago(sid):
@@ -445,10 +575,10 @@ def ordenes_delete(sid):
 @app.route('/ordenes/ingresos')
 def ordenes_ingresos():
     conn = get_db()
-    rows = conn.execute('''SELECT i.*,c.nombre as cliente_nombre
-        FROM Ingresos_Servicios i LEFT JOIN Clientes c ON i.cliente_id=c.id
-        ORDER BY i.id DESC''').fetchall(); conn.close()
-    return render_template('ordenes_ingresos.html', rows=rows, tipos_pago=TIPOS_PAGO)
+    rows = conn.execute('SELECT * FROM Ingresos_Servicios ORDER BY id DESC').fetchall()
+    tipos_pago = [r['valor'] for r in conn.execute('SELECT valor FROM Tipos_Pago ORDER BY valor').fetchall()]
+    conn.close()
+    return render_template('ordenes_ingresos.html', rows=rows, tipos_pago=tipos_pago)
 
 @app.route('/ordenes/ingresos/edit/<int:rid>', methods=['POST'])
 def ordenes_ingresos_edit(rid):
@@ -467,8 +597,7 @@ def ordenes_ingresos_delete(rid):
 @app.route('/ordenes/historial')
 def ordenes_historial():
     conn = get_db()
-    ingresos = conn.execute('''SELECT i.*,c.nombre as cliente_nombre FROM Ingresos_Servicios i
-        LEFT JOIN Clientes c ON i.cliente_id=c.id ORDER BY i.codigo_proyecto,i.id''').fetchall()
+    ingresos = conn.execute('SELECT * FROM Ingresos_Servicios ORDER BY codigo_proyecto,id').fetchall()
     salidas  = conn.execute('''SELECT sa.*,
         COALESCE((SELECT AVG(precio_unitario) FROM Compras WHERE cod_prod=sa.cod_prod),0) as costo_unitario
         FROM Salidas_Almacen sa ORDER BY sa.codigo_proyecto,sa.id''').fetchall()
@@ -478,9 +607,10 @@ def ordenes_historial():
         proyectos_info[s['codigo_proyecto']] = dict(s)
     pi = list(dict.fromkeys([r['codigo_proyecto'] or '(sin código)' for r in ingresos]))
     ps = list(dict.fromkeys([r['codigo_proyecto'] or '(sin código)' for r in salidas]))
+    tipos_pago = [r['valor'] for r in conn.execute('SELECT valor FROM Tipos_Pago ORDER BY valor').fetchall()]
     conn.close()
     return render_template('ordenes_historial.html', ingresos=ingresos, salidas=salidas,
-        proyectos=list(dict.fromkeys(pi+ps)), proyectos_info=proyectos_info, tipos_pago=TIPOS_PAGO)
+        proyectos=list(dict.fromkeys(pi+ps)), proyectos_info=proyectos_info, tipos_pago=tipos_pago)
 
 @app.route('/ordenes/historial/edit/<int:rid>', methods=['POST'])
 def ordenes_historial_edit(rid):
@@ -499,52 +629,43 @@ def ordenes_historial_delete(rid):
 @app.route('/ordenes/historial/export')
 def ordenes_historial_export():
     conn = get_db()
-    rows = conn.execute('''SELECT i.fecha,i.codigo_proyecto,i.nombre_proyecto,
-        c.nombre,i.monto_facturado,i.nro_factura,i.monto,i.tipo_pago,i.observaciones
-        FROM Ingresos_Servicios i LEFT JOIN Clientes c ON i.cliente_id=c.id
-        ORDER BY i.codigo_proyecto,i.id''').fetchall(); conn.close()
-    return export_excel(rows,['Fecha','Cód.','Proyecto','Cliente','M.Fact.','N°Fact.','Monto','Pago','Obs.'],'Historial_Servicios')
+    rows = conn.execute('SELECT fecha,codigo_proyecto,nombre_proyecto,monto_facturado,nro_factura,monto,tipo_pago,observaciones FROM Ingresos_Servicios ORDER BY codigo_proyecto,id').fetchall(); conn.close()
+    return export_excel(rows,['Fecha','Cód.','Proyecto','M.Fact.','N°Fact.','Monto','Pago','Obs.'],'Historial_Servicios')
 
 @app.route('/ordenes/export')
 def ordenes_export():
     conn = get_db()
-    rows = conn.execute('''SELECT s.codigo_proyecto,s.nombre_proyecto,s.tipo_servicio,
-        c.nombre,s.precio_total,s.saldo_cobrar FROM Servicios s
-        LEFT JOIN Clientes c ON s.cliente_id=c.id WHERE s.saldo_cobrar>0''').fetchall(); conn.close()
-    return export_excel(rows,['Cód.','Proyecto','Tipo Servicio','Cliente','Precio Total','Saldo'],'Servicios')
+    rows = conn.execute('SELECT codigo_proyecto,nombre_proyecto,tipo_servicio,precio_total,saldo_cobrar FROM Servicios WHERE saldo_cobrar>0').fetchall(); conn.close()
+    return export_excel(rows,['Cód.','Proyecto','Tipo Servicio','Precio Total','Saldo'],'Servicios')
 
 @app.route('/ordenes/ingresos/export')
 def ordenes_ingresos_export():
     conn = get_db()
-    rows = conn.execute('''SELECT i.fecha,i.codigo_proyecto,i.nombre_proyecto,c.nombre,
-        i.monto_facturado,i.nro_factura,i.monto,i.tipo_pago,i.observaciones
-        FROM Ingresos_Servicios i LEFT JOIN Clientes c ON i.cliente_id=c.id''').fetchall(); conn.close()
-    return export_excel(rows,['Fecha','Cód.','Proyecto','Cliente','M.Fact.','N°Fact.','Monto','Pago','Obs.'],'Ingresos_Servicios')
+    rows = conn.execute('SELECT fecha,codigo_proyecto,nombre_proyecto,monto_facturado,nro_factura,monto,tipo_pago,observaciones FROM Ingresos_Servicios').fetchall(); conn.close()
+    return export_excel(rows,['Fecha','Cód.','Proyecto','M.Fact.','N°Fact.','Monto','Pago','Obs.'],'Ingresos_Servicios')
 
 # ── VENTAS ──
 @app.route('/ventas')
 def ventas():
     conn = get_db()
-    clientes  = conn.execute('SELECT id,nombre FROM Clientes ORDER BY nombre').fetchall()
-    proyectos = conn.execute('''SELECT v.*,c.nombre as cliente_nombre FROM Ventas v
-        LEFT JOIN Clientes c ON v.cliente_id=c.id WHERE v.saldo_cobrar>0 ORDER BY v.id DESC''').fetchall()
+    proyectos = conn.execute('''SELECT * FROM Ventas
+        WHERE saldo_cobrar>0 ORDER BY id DESC''').fetchall()
+    tipos_pago = [r['valor'] for r in conn.execute('SELECT valor FROM Tipos_Pago ORDER BY valor').fetchall()]
     conn.close()
-    return render_template('ventas.html', clientes=clientes, proyectos=proyectos,
-        today=date.today().isoformat(), tipos_pago=TIPOS_PAGO)
+    return render_template('ventas.html', proyectos=proyectos,
+        today=date.today().isoformat(), tipos_pago=tipos_pago)
 
 @app.route('/ventas/registrar', methods=['POST'])
 def ventas_registrar():
     d = request.form; precio=float(d.get('precio_total') or 0); conn=get_db()
-    cod = d.get('codigo_proyecto','').strip()
     nom = d.get('nombre_proyecto','').strip()
-    if conn.execute('SELECT id FROM Ventas WHERE codigo_proyecto=?',(cod,)).fetchone():
-        conn.close(); return jsonify({'ok':False,'msg':f'Ya existe una venta con el código "{cod}"'})
     if conn.execute('SELECT id FROM Ventas WHERE nombre_proyecto=?',(nom,)).fetchone():
         conn.close(); return jsonify({'ok':False,'msg':f'Ya existe una venta con el nombre "{nom}"'})
+    cod = _siguiente_codigo_proyecto(conn, 'VENT')
     conn.execute('''INSERT INTO Ventas(fecha,codigo_proyecto,nombre_proyecto,descripcion,
         cliente_id,precio_total,saldo_cobrar) VALUES(?,?,?,?,?,?,?)''',
         (d['fecha'],cod,nom,d['descripcion'],d.get('cliente_id') or None,precio,precio))
-    conn.commit(); conn.close(); return jsonify({'ok':True})
+    conn.commit(); conn.close(); return jsonify({'ok':True,'codigo_proyecto':cod})
 
 @app.route('/ventas/pago/<int:vid>', methods=['POST'])
 def ventas_pago(vid):
@@ -579,9 +700,10 @@ def ventas_delete(vid):
 @app.route('/ventas/ingresos')
 def ventas_ingresos():
     conn = get_db()
-    rows = conn.execute('''SELECT i.*,c.nombre as cliente_nombre FROM Ingresos_Ventas i
-        LEFT JOIN Clientes c ON i.cliente_id=c.id ORDER BY i.id DESC''').fetchall(); conn.close()
-    return render_template('ventas_ingresos.html', rows=rows, tipos_pago=TIPOS_PAGO)
+    rows = conn.execute('SELECT * FROM Ingresos_Ventas ORDER BY id DESC').fetchall()
+    tipos_pago = [r['valor'] for r in conn.execute('SELECT valor FROM Tipos_Pago ORDER BY valor').fetchall()]
+    conn.close()
+    return render_template('ventas_ingresos.html', rows=rows, tipos_pago=tipos_pago)
 
 @app.route('/ventas/ingresos/edit/<int:rid>', methods=['POST'])
 def ventas_ingresos_edit(rid):
@@ -600,8 +722,7 @@ def ventas_ingresos_delete(rid):
 @app.route('/ventas/historial')
 def ventas_historial():
     conn = get_db()
-    ingresos = conn.execute('''SELECT i.*,c.nombre as cliente_nombre FROM Ingresos_Ventas i
-        LEFT JOIN Clientes c ON i.cliente_id=c.id ORDER BY i.codigo_proyecto,i.id''').fetchall()
+    ingresos = conn.execute('SELECT * FROM Ingresos_Ventas ORDER BY codigo_proyecto,id').fetchall()
     salidas  = conn.execute('''SELECT sa.*,
         COALESCE((SELECT AVG(precio_unitario) FROM Compras WHERE cod_prod=sa.cod_prod),0) as costo_unitario
         FROM Salidas_Almacen sa ORDER BY sa.codigo_proyecto,sa.id''').fetchall()
@@ -610,9 +731,10 @@ def ventas_historial():
         proyectos_info[v['codigo_proyecto']] = dict(v)
     pi = list(dict.fromkeys([r['codigo_proyecto'] or '(sin código)' for r in ingresos]))
     ps = list(dict.fromkeys([r['codigo_proyecto'] or '(sin código)' for r in salidas]))
+    tipos_pago = [r['valor'] for r in conn.execute('SELECT valor FROM Tipos_Pago ORDER BY valor').fetchall()]
     conn.close()
     return render_template('ventas_historial.html', ingresos=ingresos, salidas=salidas,
-        proyectos=list(dict.fromkeys(pi+ps)), proyectos_info=proyectos_info, tipos_pago=TIPOS_PAGO)
+        proyectos=list(dict.fromkeys(pi+ps)), proyectos_info=proyectos_info, tipos_pago=tipos_pago)
 
 @app.route('/ventas/historial/edit/<int:rid>', methods=['POST'])
 def ventas_historial_edit(rid):
@@ -631,38 +753,404 @@ def ventas_historial_delete(rid):
 @app.route('/ventas/historial/export')
 def ventas_historial_export():
     conn = get_db()
-    rows = conn.execute('''SELECT i.fecha,i.codigo_proyecto,i.nombre_proyecto,
-        c.nombre,i.monto_facturado,i.nro_factura,i.monto,i.tipo_pago,i.observaciones
-        FROM Ingresos_Ventas i LEFT JOIN Clientes c ON i.cliente_id=c.id
-        ORDER BY i.codigo_proyecto,i.id''').fetchall(); conn.close()
-    return export_excel(rows,['Fecha','Cód.','Proyecto','Cliente','M.Fact.','N°Fact.','Monto','Pago','Obs.'],'Historial_Ventas')
+    rows = conn.execute('SELECT fecha,codigo_proyecto,nombre_proyecto,monto_facturado,nro_factura,monto,tipo_pago,observaciones FROM Ingresos_Ventas ORDER BY codigo_proyecto,id').fetchall(); conn.close()
+    return export_excel(rows,['Fecha','Cód.','Proyecto','M.Fact.','N°Fact.','Monto','Pago','Obs.'],'Historial_Ventas')
 
 @app.route('/ventas/export')
 def ventas_export():
     conn = get_db()
-    rows = conn.execute('''SELECT v.codigo_proyecto,v.nombre_proyecto,c.nombre,
-        v.precio_total,v.saldo_cobrar FROM Ventas v LEFT JOIN Clientes c ON v.cliente_id=c.id
-        WHERE v.saldo_cobrar>0''').fetchall(); conn.close()
-    return export_excel(rows,['Cód.','Proyecto','Cliente','Precio Total','Saldo'],'Ventas')
+    rows = conn.execute('SELECT codigo_proyecto,nombre_proyecto,precio_total,saldo_cobrar FROM Ventas WHERE saldo_cobrar>0').fetchall(); conn.close()
+    return export_excel(rows,['Cód.','Proyecto','Precio Total','Saldo'],'Ventas')
 
 @app.route('/ventas/ingresos/export')
 def ventas_ingresos_export():
     conn = get_db()
-    rows = conn.execute('''SELECT i.fecha,i.codigo_proyecto,i.nombre_proyecto,c.nombre,
-        i.monto_facturado,i.nro_factura,i.monto,i.tipo_pago,i.observaciones
-        FROM Ingresos_Ventas i LEFT JOIN Clientes c ON i.cliente_id=c.id''').fetchall(); conn.close()
-    return export_excel(rows,['Fecha','Cód.','Proyecto','Cliente','M.Fact.','N°Fact.','Monto','Pago','Obs.'],'Ingresos_Ventas')
+    rows = conn.execute('SELECT fecha,codigo_proyecto,nombre_proyecto,monto_facturado,nro_factura,monto,tipo_pago,observaciones FROM Ingresos_Ventas').fetchall(); conn.close()
+    return export_excel(rows,['Fecha','Cód.','Proyecto','M.Fact.','N°Fact.','Monto','Pago','Obs.'],'Ingresos_Ventas')
+
+# ── PROYECTOS ──
+@app.route('/proyectos')
+def proyectos_page():
+    conn = get_db()
+    proy = conn.execute('SELECT * FROM Proyectos ORDER BY nombre').fetchall()
+    salidas = conn.execute('''
+        SELECT sa.proyecto, sa.cantidad,
+               COALESCE((SELECT AVG(precio_unitario) FROM Compras WHERE cod_prod=sa.cod_prod),0) as costo_unit
+        FROM Salidas_Almacen sa WHERE sa.proyecto IS NOT NULL AND sa.proyecto != ""
+    ''').fetchall()
+    gastos = {}
+    for s in salidas:
+        nom = s['proyecto']
+        gastos[nom] = gastos.get(nom, 0) + (s['cantidad'] or 0) * (s['costo_unit'] or 0)
+    total_gasto = sum(gastos.values())
+    conn.close()
+    return render_template('proyectos.html', proyectos=proy, gastos=gastos, total_gasto=total_gasto)
+
+@app.route('/proyectos/check', methods=['POST'])
+def proyectos_check():
+    data = request.get_json()
+    nombre = (data.get('nombre') or '').strip()
+    conn = get_db()
+    existe = conn.execute('SELECT id FROM Proyectos WHERE LOWER(nombre)=LOWER(?)', (nombre,)).fetchone()
+    conn.close()
+    return jsonify({'existe': existe is not None})
+
+@app.route('/proyectos/add', methods=['POST'])
+def proyectos_add():
+    nombre = (request.form.get('nombre') or '').strip()
+    if not nombre:
+        return jsonify({'ok': False, 'msg': 'El nombre es obligatorio'})
+    conn = get_db()
+    if conn.execute('SELECT id FROM Proyectos WHERE LOWER(nombre)=LOWER(?)', (nombre,)).fetchone():
+        conn.close()
+        return jsonify({'ok': False, 'msg': 'Ya existe un proyecto con ese nombre'})
+    conn.execute('INSERT INTO Proyectos(nombre) VALUES(?)', (nombre,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/proyectos/delete/<int:rid>', methods=['POST'])
+def proyectos_delete(rid):
+    conn = get_db()
+    conn.execute('DELETE FROM Proyectos WHERE id=?', (rid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+# ── INSUMOS ── (catálogo único: cada insumo tiene su propio Cód. Prod. fijo,
+# que funciona como prefijo para el correlativo del Almacén de Sobrantes)
+@app.route('/api/insumos')
+def api_insumos():
+    conn = get_db()
+    rows = conn.execute('SELECT * FROM Insumos ORDER BY nombre').fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+@app.route('/insumos')
+def insumos():
+    conn = get_db()
+    rows = conn.execute('SELECT * FROM Insumos ORDER BY nombre').fetchall()
+    conn.close()
+    return render_template('insumos.html', rows=rows)
+
+@app.route('/insumos/add', methods=['POST'])
+def insumos_add():
+    cod_prod = (request.form.get('cod_prod') or '').strip().upper()
+    nombre   = (request.form.get('nombre') or '').strip()
+    unidad   = (request.form.get('unidad') or '').strip()
+    espesor  = (request.form.get('espesor') or '').strip()
+    detalle  = (request.form.get('detalle') or '').strip()
+    if not cod_prod or not nombre or not unidad:
+        return jsonify({'ok': False, 'msg': 'Cód. Prod., Insumo y Unidad son obligatorios'})
+    conn = get_db()
+    if conn.execute('SELECT id FROM Insumos WHERE LOWER(cod_prod)=LOWER(?)', (cod_prod,)).fetchone():
+        conn.close()
+        return jsonify({'ok': False, 'msg': 'Ese Cód. Prod. ya está en uso por otro insumo'})
+    if conn.execute('SELECT id FROM Insumos WHERE LOWER(nombre)=LOWER(?)', (nombre,)).fetchone():
+        conn.close()
+        return jsonify({'ok': False, 'msg': 'Ese insumo ya existe'})
+    conn.execute('INSERT INTO Insumos(cod_prod,nombre,unidad,espesor,detalle) VALUES(?,?,?,?,?)',
+        (cod_prod, nombre, unidad, espesor, detalle))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/insumos/edit/<int:rid>', methods=['POST'])
+def insumos_edit(rid):
+    d = request.form; conn = get_db()
+    nombre = (d.get('nombre') or '').strip()
+    unidad = (d.get('unidad') or '').strip()
+    espesor = (d.get('espesor') or '').strip()
+    detalle = (d.get('detalle') or '').strip()
+    if not nombre or not unidad:
+        conn.close(); return jsonify({'ok': False, 'msg': 'Insumo y Unidad son obligatorios'})
+    dup = conn.execute('SELECT id FROM Insumos WHERE LOWER(nombre)=LOWER(?) AND id!=?', (nombre, rid)).fetchone()
+    if dup:
+        conn.close(); return jsonify({'ok': False, 'msg': 'Ya existe otro insumo con ese nombre'})
+    conn.execute('UPDATE Insumos SET nombre=?,unidad=?,espesor=?,detalle=? WHERE id=?',
+        (nombre, unidad, espesor, detalle, rid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/insumos/delete/<int:rid>', methods=['POST'])
+def insumos_delete(rid):
+    conn = get_db(); conn.execute('DELETE FROM Insumos WHERE id=?', (rid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/insumos/export')
+def insumos_export():
+    conn = get_db()
+    rows = conn.execute('SELECT * FROM Insumos ORDER BY nombre').fetchall(); conn.close()
+    return export_excel(rows, ['ID','Cód. Prod.','Insumo','Unidad','Espesor','Detalle'], 'Insumos')
+
+# ── TIPOS DE PAGO / TIPOS DE DOCUMENTO (configurables desde Configuraciones) ──
+@app.route('/configuraciones/tipos_pago/add', methods=['POST'])
+def tipos_pago_add():
+    valor = (request.form.get('valor') or '').strip()
+    if not valor:
+        return jsonify({'ok': False, 'msg': 'El valor es obligatorio'})
+    conn = get_db()
+    if conn.execute('SELECT id FROM Tipos_Pago WHERE LOWER(valor)=LOWER(?)', (valor,)).fetchone():
+        conn.close()
+        return jsonify({'ok': False, 'msg': 'Ese tipo de pago ya existe'})
+    conn.execute('INSERT INTO Tipos_Pago(valor) VALUES(?)', (valor,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/configuraciones/tipos_pago/delete/<int:rid>', methods=['POST'])
+def tipos_pago_delete(rid):
+    conn = get_db(); conn.execute('DELETE FROM Tipos_Pago WHERE id=?', (rid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/configuraciones/tipos_documento/add', methods=['POST'])
+def tipos_documento_add():
+    valor = (request.form.get('valor') or '').strip()
+    if not valor:
+        return jsonify({'ok': False, 'msg': 'El valor es obligatorio'})
+    conn = get_db()
+    if conn.execute('SELECT id FROM Tipos_Documento WHERE LOWER(valor)=LOWER(?)', (valor,)).fetchone():
+        conn.close()
+        return jsonify({'ok': False, 'msg': 'Ese tipo de documento ya existe'})
+    conn.execute('INSERT INTO Tipos_Documento(valor) VALUES(?)', (valor,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/configuraciones/tipos_documento/delete/<int:rid>', methods=['POST'])
+def tipos_documento_delete(rid):
+    conn = get_db(); conn.execute('DELETE FROM Tipos_Documento WHERE id=?', (rid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+# ── ALMACÉN DE SOBRANTES ──
+# Cada fila es una PIEZA ÚNICA de sobrante (un corte = un código de producto propio).
+# El código se genera como {PREFIJO}_{NN}, con NN correlativo y SIEMPRE creciente
+# por prefijo — nunca se reutiliza aunque se borren registros.
+def _siguiente_cod_sobrante(conn, cod_insumo):
+    conn.execute(
+        "INSERT INTO Sobrantes_Contadores(cod_insumo,ultimo) VALUES(?,1) "
+        "ON CONFLICT(cod_insumo) DO UPDATE SET ultimo=ultimo+1", (cod_insumo,))
+    row = conn.execute('SELECT ultimo FROM Sobrantes_Contadores WHERE cod_insumo=?', (cod_insumo,)).fetchone()
+    return f"{cod_insumo}_{row['ultimo']:02d}"
+
+def _siguiente_codigo_proyecto(conn, prefijo):
+    """Genera el siguiente código de proyecto para Órdenes (SERV-) o Ventas (VENT-).
+    Correlativo persistente — nunca decrece ni se reutiliza, igual que en Sobrantes."""
+    conn.execute(
+        "INSERT INTO Codigos_Proyecto_Contadores(prefijo,ultimo) VALUES(?,1) "
+        "ON CONFLICT(prefijo) DO UPDATE SET ultimo=ultimo+1", (prefijo,))
+    row = conn.execute('SELECT ultimo FROM Codigos_Proyecto_Contadores WHERE prefijo=?', (prefijo,)).fetchone()
+    return f"{prefijo}-{row['ultimo']:04d}"
+
+@app.route('/api/sobrantes/siguiente_cod/<insumo>')
+def api_sobrantes_siguiente_cod(insumo):
+    conn = get_db()
+    ins = conn.execute('SELECT * FROM Insumos WHERE nombre=?', (insumo,)).fetchone()
+    if not ins:
+        conn.close()
+        return jsonify({'cod_prod': '', 'error': 'Insumo no encontrado en catálogo'})
+    # Vista previa sin consumir el contador: muestra cuál sería el próximo número
+    row = conn.execute('SELECT ultimo FROM Sobrantes_Contadores WHERE cod_insumo=?', (ins['cod_prod'],)).fetchone()
+    siguiente = (row['ultimo'] + 1) if row else 1
+    conn.close()
+    return jsonify({'cod_prod': f"{ins['cod_prod']}_{siguiente:02d}", 'unidad': ins['unidad'], 'espesor': ins['espesor'] or ''})
+
+@app.route('/sobrantes')
+def sobrantes():
+    conn = get_db()
+    rows = conn.execute('SELECT * FROM Almacen_Sobrantes ORDER BY insumo, cod_prod').fetchall()
+    insumos = conn.execute('SELECT * FROM Insumos ORDER BY nombre').fetchall()
+    proyectos = conn.execute('SELECT id, nombre FROM Proyectos ORDER BY nombre').fetchall()
+    conn.close()
+    return render_template('sobrantes.html', rows=rows, insumos=insumos,
+        proyectos=proyectos, today=date.today().isoformat())
+
+@app.route('/sobrantes/entrada', methods=['POST'])
+def sobrantes_entrada():
+    d = request.form; conn = get_db()
+    cant = float(d.get('cantidad') or 0)
+    insumo = d['insumo']; tamano = d.get('tamano') or ''
+    proyecto = d.get('proyecto_origen') or ''
+    descripcion = d.get('descripcion') or ''
+
+    ins = conn.execute('SELECT * FROM Insumos WHERE nombre=?', (insumo,)).fetchone()
+    if not ins:
+        conn.close(); return jsonify({'ok': False, 'msg': 'Insumo no encontrado en el catálogo'})
+
+    # Espesor y unidad vienen siempre del catálogo de Insumos — no se capturan a mano.
+    espesor = ins['espesor'] or ''
+    unidad = ins['unidad']
+
+    # El cód. prod. siempre se genera nuevo — cada pieza de sobrante es única,
+    # aunque coincida insumo/espesor/tamaño con una entrada anterior.
+    cod_prod = _siguiente_cod_sobrante(conn, ins['cod_prod'])
+
+    conn.execute('''INSERT INTO Entradas_Almacen_Sobrantes
+        (cod_prod,fecha,insumo,espesor,tamano,unidad,cantidad,proyecto_origen,descripcion)
+        VALUES(?,?,?,?,?,?,?,?,?)''',
+        (cod_prod, d['fecha'], insumo, espesor, tamano, unidad, cant, proyecto, descripcion))
+
+    conn.execute('''INSERT INTO Almacen_Sobrantes
+        (cod_prod,fecha_entrada,insumo,espesor,tamano,unidad,entradas,salidas,stock,proyecto_origen,descripcion)
+        VALUES(?,?,?,?,?,?,?,0,?,?,?)''',
+        (cod_prod, d['fecha'], insumo, espesor, tamano, unidad, cant, cant, proyecto, descripcion))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'cod_prod': cod_prod})
+
+@app.route('/sobrantes/salida', methods=['POST'])
+def sobrantes_salida():
+    d = request.form; conn = get_db()
+    cant = float(d.get('cantidad') or 0)
+    cod_prod = d['cod_prod']
+
+    row = conn.execute('SELECT * FROM Almacen_Sobrantes WHERE cod_prod=?', (cod_prod,)).fetchone()
+    if not row:
+        conn.close(); return jsonify({'ok': False, 'msg': 'Producto no encontrado'})
+    if cant > (row['stock'] or 0):
+        conn.close(); return jsonify({'ok': False, 'msg': 'Stock insuficiente'})
+
+    conn.execute('''INSERT INTO Salidas_Almacen_Sobrantes
+        (cod_prod,fecha,insumo,cantidad,unidad,proyecto_origen,proyecto_destino) VALUES(?,?,?,?,?,?,?)''',
+        (cod_prod, d['fecha'], d['insumo'], cant, d['unidad'], row['proyecto_origen'] or '', d.get('proyecto_destino') or ''))
+
+    nuevo_stock = (row['stock'] or 0) - cant
+    if nuevo_stock <= 0:
+        # Stock agotado: la pieza desaparece del Almacén de Sobrantes
+        conn.execute('DELETE FROM Almacen_Sobrantes WHERE cod_prod=?', (cod_prod,))
+    else:
+        conn.execute('UPDATE Almacen_Sobrantes SET salidas=salidas+?,stock=? WHERE cod_prod=?',
+            (cant, nuevo_stock, cod_prod))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/sobrantes/edit/<int:rid>', methods=['POST'])
+def sobrantes_edit(rid):
+    d = request.form; conn = get_db()
+    # Insumo/Espesor/Unidad quedan fijos: ya determinaron el cod_prod de esta pieza.
+    conn.execute('''UPDATE Almacen_Sobrantes SET tamano=?,
+        proyecto_origen=?,descripcion=? WHERE id=?''',
+        (d.get('tamano') or '', d.get('proyecto_origen') or '', d.get('descripcion') or '', rid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/sobrantes/delete/<int:rid>', methods=['POST'])
+def sobrantes_delete(rid):
+    conn = get_db(); conn.execute('DELETE FROM Almacen_Sobrantes WHERE id=?', (rid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/sobrantes/export')
+def sobrantes_export():
+    conn = get_db()
+    rows = conn.execute('SELECT * FROM Almacen_Sobrantes ORDER BY insumo, cod_prod').fetchall(); conn.close()
+    return export_excel(rows, ['ID','Cód. Prod.','Fecha Entrada','Insumo','Espesor','Tamaño','Unidad',
+        'Entradas','Salidas','Stock','Proyecto Origen','Descripción'], 'Almacen_Sobrantes')
+
+@app.route('/sobrantes/entradas')
+def sobrantes_entradas():
+    conn = get_db()
+    rows = conn.execute('SELECT * FROM Entradas_Almacen_Sobrantes ORDER BY id DESC').fetchall()
+    insumos = conn.execute('SELECT * FROM Insumos ORDER BY nombre').fetchall()
+    proyectos = conn.execute('SELECT id, nombre FROM Proyectos ORDER BY nombre').fetchall()
+    conn.close()
+    return render_template('sobrantes_entradas.html', rows=rows, insumos=insumos, proyectos=proyectos)
+
+@app.route('/sobrantes/entradas/edit/<int:rid>', methods=['POST'])
+def sobrantes_entradas_edit(rid):
+    d = request.form; conn = get_db()
+    old = conn.execute('SELECT * FROM Entradas_Almacen_Sobrantes WHERE id=?', (rid,)).fetchone()
+    nueva_cant = float(d.get('cantidad') or 0)
+    diff = nueva_cant - float(old['cantidad'] or 0)
+    tamano = d.get('tamano') or ''
+    proyecto_origen = d.get('proyecto_origen') or ''
+    descripcion = d.get('descripcion') or ''
+    # Insumo/Espesor/Unidad quedan fijos: ya determinaron el cod_prod de esta pieza
+    # al momento de la entrada original, y cambiarlos dejaría el código incoherente.
+    # Solo se ajustan fecha, tamaño, cantidad, proyecto origen y descripción.
+    conn.execute('''UPDATE Entradas_Almacen_Sobrantes SET fecha=?,
+        tamano=?,cantidad=?,proyecto_origen=?,descripcion=? WHERE id=?''',
+        (d['fecha'], tamano, nueva_cant, proyecto_origen, descripcion, rid))
+    conn.execute('UPDATE Almacen_Sobrantes SET tamano=?,proyecto_origen=?,descripcion=? WHERE cod_prod=?',
+        (tamano, proyecto_origen, descripcion, old['cod_prod']))
+    if diff != 0:
+        conn.execute('UPDATE Almacen_Sobrantes SET entradas=entradas+?,stock=stock+? WHERE cod_prod=?',
+            (diff, diff, old['cod_prod']))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/sobrantes/entradas/delete/<int:rid>', methods=['POST'])
+def sobrantes_entradas_delete(rid):
+    conn = get_db()
+    row = conn.execute('SELECT * FROM Entradas_Almacen_Sobrantes WHERE id=?', (rid,)).fetchone()
+    if row:
+        conn.execute('UPDATE Almacen_Sobrantes SET entradas=entradas-?,stock=stock-? WHERE cod_prod=?',
+            (row['cantidad'], row['cantidad'], row['cod_prod']))
+        conn.execute('DELETE FROM Almacen_Sobrantes WHERE cod_prod=? AND stock<=0', (row['cod_prod'],))
+    conn.execute('DELETE FROM Entradas_Almacen_Sobrantes WHERE id=?', (rid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/sobrantes/entradas/export')
+def sobrantes_entradas_export():
+    conn = get_db()
+    rows = conn.execute('SELECT * FROM Entradas_Almacen_Sobrantes ORDER BY id DESC').fetchall()
+    conn.close()
+    return export_excel(rows, ['ID','Cód.','Fecha','Insumo','Espesor','Tamaño','Unidad',
+        'Cantidad','Proyecto Origen','Descripción'], 'Entradas_Almacen_Sobrantes')
+
+@app.route('/sobrantes/salidas')
+def sobrantes_salidas():
+    conn = get_db()
+    rows = conn.execute('SELECT * FROM Salidas_Almacen_Sobrantes ORDER BY id DESC').fetchall()
+    proyectos = conn.execute('SELECT id, nombre FROM Proyectos ORDER BY nombre').fetchall()
+    conn.close()
+    return render_template('sobrantes_salidas.html', rows=rows, proyectos=proyectos)
+
+@app.route('/sobrantes/salidas/edit/<int:rid>', methods=['POST'])
+def sobrantes_salidas_edit(rid):
+    d = request.form; conn = get_db()
+    old = conn.execute('SELECT * FROM Salidas_Almacen_Sobrantes WHERE id=?', (rid,)).fetchone()
+    nueva_cant = float(d.get('cantidad') or 0)
+    diff = nueva_cant - float(old['cantidad'] or 0)  # diff>0 = sale más stock
+    # Insumo/Unidad pertenecen a la pieza original (cod_prod) y no se reasignan aquí —
+    # solo se ajustan fecha, cantidad y proyecto destino.
+    conn.execute('''UPDATE Salidas_Almacen_Sobrantes SET fecha=?,
+        cantidad=?,proyecto_destino=? WHERE id=?''',
+        (d['fecha'], nueva_cant, d.get('proyecto_destino') or '', rid))
+    if diff != 0:
+        conn.execute('UPDATE Almacen_Sobrantes SET salidas=salidas+?,stock=stock-? WHERE cod_prod=?',
+            (diff, diff, old['cod_prod']))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/sobrantes/salidas/delete/<int:rid>', methods=['POST'])
+def sobrantes_salidas_delete(rid):
+    conn = get_db()
+    row = conn.execute('SELECT * FROM Salidas_Almacen_Sobrantes WHERE id=?', (rid,)).fetchone()
+    if row:
+        existe = conn.execute('SELECT id FROM Almacen_Sobrantes WHERE cod_prod=?', (row['cod_prod'],)).fetchone()
+        if existe:
+            conn.execute('UPDATE Almacen_Sobrantes SET salidas=salidas-?,stock=stock+? WHERE cod_prod=?',
+                (row['cantidad'], row['cantidad'], row['cod_prod']))
+        # Si la pieza ya no existe (stock se agotó y se borró), no se puede revivir
+        # automáticamente sin perder trazabilidad.
+    conn.execute('DELETE FROM Salidas_Almacen_Sobrantes WHERE id=?', (rid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/sobrantes/salidas/export')
+def sobrantes_salidas_export():
+    conn = get_db()
+    rows = conn.execute('''SELECT id,cod_prod,fecha,insumo,cantidad,unidad,
+        proyecto_origen,proyecto_destino FROM Salidas_Almacen_Sobrantes ORDER BY id DESC''').fetchall()
+    conn.close()
+    return export_excel(rows, ['ID','Cód.','Fecha','Insumo','Cantidad','Unidad',
+        'Proyecto Origen','Proyecto Destino'], 'Salidas_Almacen_Sobrantes')
 
 # ── ALMACÉN ──
 @app.route('/almacen')
 def almacen():
     conn = get_db()
     rows = conn.execute('SELECT * FROM Almacen ORDER BY cod_prod').fetchall()
-    proyectos = conn.execute('''
-        SELECT codigo_proyecto,nombre_proyecto FROM Servicios WHERE codigo_proyecto IS NOT NULL
-        UNION
-        SELECT codigo_proyecto,nombre_proyecto FROM Ventas WHERE codigo_proyecto IS NOT NULL
-        ORDER BY nombre_proyecto''').fetchall()
+    proyectos = conn.execute('SELECT id, nombre FROM Proyectos ORDER BY nombre').fetchall()
     productos = conn.execute('''SELECT cod_prod,insumo,unidad,stock FROM Almacen
         WHERE cod_prod IS NOT NULL AND cod_prod!='' ORDER BY insumo''').fetchall()
     conn.close()
@@ -673,23 +1161,63 @@ def almacen():
 def almacen_salida():
     d = request.form; cant=float(d.get('cantidad') or 0); conn=get_db()
     conn.execute('''INSERT INTO Salidas_Almacen(cod_prod,fecha,insumo,cantidad,unidad,
-        proyecto,codigo_proyecto,sobrantes) VALUES(?,?,?,?,?,?,?,?)''',
-        (d['cod_prod'],d['fecha'],d['insumo'],cant,d['unidad'],
-         d['proyecto'],d['codigo_proyecto'],float(d.get('sobrantes') or 0)))
+        proyecto) VALUES(?,?,?,?,?,?)''',
+        (d['cod_prod'],d['fecha'],d['insumo'],cant,d['unidad'],d['proyecto']))
     if conn.execute('SELECT id FROM Almacen WHERE cod_prod=?',(d['cod_prod'],)).fetchone():
         conn.execute('UPDATE Almacen SET salidas=salidas+?,stock=stock-? WHERE cod_prod=?',(cant,cant,d['cod_prod']))
     conn.commit(); conn.close(); return jsonify({'ok':True})
+
+@app.route('/almacen/excedente', methods=['POST'])
+def almacen_excedente():
+    """Devuelve al stock del Almacén normal material que se sacó pero no se usó
+    por completo (ej: se sacaron 5 electrodos, se usaron 3, los 2 sobrantes
+    vuelven a sumarse al stock). No tiene relación con el Almacén de Sobrantes
+    (que es para retazos/cortes de planchas, perfiles, tubos, etc.).
+
+    Se registra como una salida en NEGATIVO en Salidas_Almacen, ligada al
+    Proyecto Origen indicado. Esto deja rastro visible en la pantalla de
+    Salidas de Almacén y, automáticamente, reduce el "Material Gastado" de
+    ese proyecto en la pantalla Proyectos (que calcula el gasto sumando
+    cantidad × precio_unitario_promedio de Compras sobre todas las salidas
+    de ese proyecto)."""
+    d = request.form; cant = float(d.get('cantidad') or 0); conn = get_db()
+    cod_prod = (d.get('cod_prod') or '').strip()
+    insumo = (d.get('insumo') or '').strip()
+    unidad = (d.get('unidad') or '').strip()
+    proyecto_origen = (d.get('proyecto_origen') or '').strip()
+    if not cod_prod or not insumo:
+        conn.close(); return jsonify({'ok': False, 'msg': 'Selecciona un producto válido del almacén'})
+    if not proyecto_origen:
+        conn.close(); return jsonify({'ok': False, 'msg': 'Selecciona el proyecto origen del excedente'})
+    if cant <= 0:
+        conn.close(); return jsonify({'ok': False, 'msg': 'Ingresa una cantidad mayor a 0'})
+
+    fila = conn.execute('SELECT id FROM Almacen WHERE cod_prod=?', (cod_prod,)).fetchone()
+    if not fila:
+        conn.close(); return jsonify({'ok': False, 'msg': 'Producto no encontrado en el almacén'})
+
+    fecha = d.get('fecha') or date.today().isoformat()
+    conn.execute('''INSERT INTO Salidas_Almacen(cod_prod,fecha,insumo,cantidad,unidad,proyecto)
+        VALUES(?,?,?,?,?,?)''', (cod_prod, fecha, insumo, -cant, unidad, proyecto_origen))
+    conn.execute('UPDATE Almacen SET entradas=entradas+?,stock=stock+? WHERE cod_prod=?', (cant, cant, cod_prod))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
 
 @app.route('/almacen/salida/edit/<int:rid>', methods=['POST'])
 def almacen_salida_edit(rid):
     d = request.form; conn=get_db()
     old = conn.execute('SELECT * FROM Salidas_Almacen WHERE id=?',(rid,)).fetchone()
-    diff = float(d.get('cantidad') or 0)-float(old['cantidad'])
-    conn.execute('''UPDATE Salidas_Almacen SET cod_prod=?,fecha=?,insumo=?,cantidad=?,
-        unidad=?,proyecto=?,codigo_proyecto=?,sobrantes=? WHERE id=?''',
-        (d['cod_prod'],d['fecha'],d['insumo'],float(d.get('cantidad') or 0),
-         d['unidad'],d['proyecto'],d['codigo_proyecto'],float(d.get('sobrantes') or 0),rid))
-    conn.execute('UPDATE Almacen SET salidas=salidas+?,stock=stock-? WHERE cod_prod=?',(diff,diff,d['cod_prod']))
+    nueva_cant = float(d.get('cantidad') or 0)
+    diff = nueva_cant - float(old['cantidad'])
+    # El producto (cod_prod/insumo/unidad) de una salida ya registrada NO se reasigna:
+    # solo se ajusta la cantidad/proyecto. El stock se corrige sobre el producto
+    # ORIGINAL de la salida (old['cod_prod']), nunca sobre un valor que pudiera
+    # haber llegado distinto desde el formulario.
+    conn.execute('''UPDATE Salidas_Almacen SET fecha=?,cantidad=?,
+        proyecto=?,codigo_proyecto=? WHERE id=?''',
+        (d['fecha'],nueva_cant,d['proyecto'],d.get('codigo_proyecto') or '',rid))
+    conn.execute('UPDATE Almacen SET salidas=salidas+?,stock=stock-? WHERE cod_prod=?',
+        (diff,diff,old['cod_prod']))
     conn.commit(); conn.close(); return jsonify({'ok':True})
 
 @app.route('/almacen/salida/delete/<int:rid>', methods=['POST'])
@@ -704,14 +1232,15 @@ def almacen_salida_delete(rid):
 @app.route('/almacen/salidas')
 def almacen_salidas():
     conn = get_db()
-    rows = conn.execute('SELECT * FROM Salidas_Almacen ORDER BY id DESC').fetchall(); conn.close()
-    return render_template('almacen_salidas.html', rows=rows)
+    rows = conn.execute('SELECT * FROM Salidas_Almacen ORDER BY id DESC').fetchall()
+    proyectos = conn.execute('SELECT id, nombre FROM Proyectos ORDER BY nombre').fetchall()
+    conn.close()
+    return render_template('almacen_salidas.html', rows=rows, proyectos=proyectos)
 
 @app.route('/almacen/entradas')
 def almacen_entradas():
     conn = get_db()
-    rows = conn.execute('''SELECT c.*,p.nombre as proveedor_nombre FROM Compras c
-        LEFT JOIN Proveedores p ON c.proveedor_id=p.id ORDER BY c.id DESC''').fetchall(); conn.close()
+    rows = conn.execute('SELECT * FROM Compras ORDER BY id DESC').fetchall(); conn.close()
     return render_template('almacen_entradas.html', rows=rows)
 
 @app.route('/almacen/edit/<int:rid>', methods=['POST'])
@@ -730,13 +1259,14 @@ def almacen_delete(rid):
 def almacen_export():
     conn = get_db()
     rows = conn.execute('SELECT * FROM Almacen').fetchall(); conn.close()
-    return export_excel(rows,['ID','Cód.','Insumo','Entradas','Salidas','Stock','Unidad','Descripción/Cliente'],'Almacen')
+    return export_excel(rows,['ID','Cód.','Insumo','Entradas','Salidas','Stock','Unidad','Descripción'],'Almacen')
 
 @app.route('/almacen/salidas/export')
 def almacen_salidas_export():
     conn = get_db()
-    rows = conn.execute('SELECT * FROM Salidas_Almacen').fetchall(); conn.close()
-    return export_excel(rows,['ID','Cód.','Fecha','Insumo','Cantidad','Unidad','Proyecto','Cód.Proy.','Sobrantes','Costo'],'Salidas_Almacen')
+    rows = conn.execute('''SELECT id,cod_prod,fecha,insumo,cantidad,unidad,proyecto,
+        costo FROM Salidas_Almacen''').fetchall(); conn.close()
+    return export_excel(rows,['ID','Cód.','Fecha','Insumo','Cantidad','Unidad','Proyecto','Costo'],'Salidas_Almacen')
 
 # ── COMPRAS ──
 @app.route('/compras')
@@ -744,50 +1274,51 @@ def compras():
     conn = get_db()
     proveedores = conn.execute('SELECT id,nombre FROM Proveedores ORDER BY nombre').fetchall()
     rows = conn.execute('''SELECT c.*,p.nombre as proveedor_nombre FROM Compras c
-        LEFT JOIN Proveedores p ON c.proveedor_id=p.id ORDER BY c.id DESC''').fetchall(); conn.close()
-    return render_template('compras.html', proveedores=proveedores, rows=rows, today=date.today().isoformat())
+        LEFT JOIN Proveedores p ON c.proveedor_id=p.id ORDER BY c.id DESC''').fetchall()
+    tipos_pago = [r['valor'] for r in conn.execute('SELECT valor FROM Tipos_Pago ORDER BY valor').fetchall()]
+    tipos_documento = [r['valor'] for r in conn.execute('SELECT valor FROM Tipos_Documento ORDER BY valor').fetchall()]
+    insumos = conn.execute('SELECT cod_prod,nombre,unidad FROM Insumos ORDER BY nombre').fetchall()
+    conn.close()
+    return render_template('compras.html', proveedores=proveedores, rows=rows, today=date.today().isoformat(),
+        tipos_pago=tipos_pago, tipos_documento=tipos_documento, insumos=insumos)
 
 @app.route('/compras/add', methods=['POST'])
 def compras_add():
     d = request.form; cant=float(d.get('cantidad') or 0); pu=float(d.get('precio_unitario') or 0)
     total=cant*pu; conn=get_db()
+    cod_prod = (d.get('cod_prod') or '').strip()
+    insumo   = (d.get('insumo') or '').strip()
+    if not cod_prod or not insumo:
+        conn.close(); return jsonify({'ok': False, 'msg': 'Selecciona un insumo válido del catálogo'})
     conn.execute('''INSERT INTO Compras(fecha,proveedor_id,cod_prod,insumo,cantidad,unidad,
         precio_unitario,precio_total,tipo_documento,nro_documento,tipo_pago,detalle) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)''',
-        (d['fecha'],d.get('proveedor_id') or None,d['cod_prod'],d['insumo'],cant,d['unidad'],
+        (d['fecha'],d.get('proveedor_id') or None,cod_prod,insumo,cant,d['unidad'],
          pu,total,d['tipo_documento'],d['nro_documento'],d['tipo_pago'],d['detalle']))
-    if conn.execute('SELECT id FROM Almacen WHERE cod_prod=?',(d['cod_prod'],)).fetchone():
-        conn.execute('UPDATE Almacen SET entradas=entradas+?,stock=stock+? WHERE cod_prod=?',(cant,cant,d['cod_prod']))
+    if conn.execute('SELECT id FROM Almacen WHERE cod_prod=?',(cod_prod,)).fetchone():
+        conn.execute('UPDATE Almacen SET entradas=entradas+?,stock=stock+? WHERE cod_prod=?',(cant,cant,cod_prod))
     else:
         conn.execute('INSERT INTO Almacen(cod_prod,insumo,entradas,salidas,stock,unidad) VALUES(?,?,?,0,?,?)',
-            (d['cod_prod'],d['insumo'],cant,cant,d['unidad']))
+            (cod_prod,insumo,cant,cant,d['unidad']))
     conn.commit(); conn.close(); return jsonify({'ok':True,'total':total})
 
 @app.route('/compras/edit/<int:rid>', methods=['POST'])
 def compras_edit(rid):
     d = request.form; cant=float(d.get('cantidad') or 0); pu=float(d.get('precio_unitario') or 0); conn=get_db()
     old = conn.execute('SELECT * FROM Compras WHERE id=?',(rid,)).fetchone()
-    old_cod  = old['cod_prod'] or ''
-    new_cod  = (d.get('cod_prod') or '').strip()
     diff = cant - float(old['cantidad'])
 
-    conn.execute('''UPDATE Compras SET fecha=?,proveedor_id=?,cod_prod=?,insumo=?,cantidad=?,
+    # El producto (cod_prod/insumo/unidad) de una compra ya registrada viene del
+    # catálogo de Insumos y no se reasigna aquí — solo se ajustan fecha, proveedor,
+    # cantidad, precio, documento y detalle. El stock se corrige sobre el producto
+    # ORIGINAL de la compra (old['cod_prod']).
+    conn.execute('''UPDATE Compras SET fecha=?,proveedor_id=?,cantidad=?,
         unidad=?,precio_unitario=?,precio_total=?,tipo_documento=?,nro_documento=?,tipo_pago=?,detalle=? WHERE id=?''',
-        (d['fecha'],d.get('proveedor_id') or None,new_cod,d['insumo'],cant,d['unidad'],
+        (d['fecha'],d.get('proveedor_id') or None,cant,d['unidad'],
          pu,cant*pu,d['tipo_documento'],d['nro_documento'],d['tipo_pago'],d['detalle'],rid))
 
-    if new_cod:
-        existing = conn.execute('SELECT id FROM Almacen WHERE cod_prod=?',(new_cod,)).fetchone()
-        if existing:
-            # Ya existe en almacén: ajustar diferencia de cantidad
-            conn.execute('UPDATE Almacen SET entradas=entradas+?,stock=stock+? WHERE cod_prod=?',(diff,diff,new_cod))
-        else:
-            # cod_prod nuevo (antes estaba vacío): crear fila en Almacén
-            conn.execute('INSERT INTO Almacen(cod_prod,insumo,entradas,salidas,stock,unidad) VALUES(?,?,?,0,?,?)',
-                (new_cod,d['insumo'],cant,cant,d['unidad']))
-        # Si cambió el código, revertir el stock del código viejo
-        if old_cod and old_cod != new_cod:
-            conn.execute('UPDATE Almacen SET entradas=entradas-?,stock=stock-? WHERE cod_prod=?',
-                (float(old['cantidad']),float(old['cantidad']),old_cod))
+    if diff != 0 and old['cod_prod']:
+        conn.execute('UPDATE Almacen SET entradas=entradas+?,stock=stock+? WHERE cod_prod=?',
+            (diff,diff,old['cod_prod']))
 
     conn.commit(); conn.close(); return jsonify({'ok':True})
 
@@ -941,10 +1472,10 @@ def consumibles_historial_export():
 @app.route('/configuraciones')
 def configuraciones():
     conn=get_db()
-    cp=conn.execute('''SELECT p.nombre,COUNT(*) as cant,SUM(c.precio_total) as total
-        FROM Compras c LEFT JOIN Proveedores p ON c.proveedor_id=p.id
-        GROUP BY c.proveedor_id ORDER BY total DESC''').fetchall(); conn.close()
-    return render_template('configuraciones.html',compras_prov=cp)
+    tipos_pago = conn.execute('SELECT * FROM Tipos_Pago ORDER BY valor').fetchall()
+    tipos_documento = conn.execute('SELECT * FROM Tipos_Documento ORDER BY valor').fetchall()
+    conn.close()
+    return render_template('configuraciones.html',compras_prov=[],tipos_pago=tipos_pago,tipos_documento=tipos_documento)
 
 @app.route('/configuraciones/backup')
 def backup():
@@ -974,7 +1505,8 @@ def eliminar_tabla():
     tabla=request.form.get('tabla')
     permitidas=['Clientes','Proveedores','Trabajadores','Servicios','Ingresos_Servicios',
         'Ventas','Ingresos_Ventas','Almacen','Salidas_Almacen','Compras',
-        'Herramientas','Asignacion_Herramientas','Consumibles','Entrega_Consumibles']
+        'Herramientas','Asignacion_Herramientas','Consumibles','Entrega_Consumibles',
+        'Insumos','Almacen_Sobrantes','Entradas_Almacen_Sobrantes','Salidas_Almacen_Sobrantes']
     if tabla in permitidas:
         conn=get_db(); conn.execute(f'DELETE FROM {tabla}')
         conn.commit(); conn.close(); return jsonify({'ok':True,'msg':f'Tabla {tabla} limpiada'})
@@ -1011,6 +1543,7 @@ def export_excel(rows, headers, sheet_name):
 # ── ARRANQUE ───────────────────────────────────────────────────────────────────
 if __name__ == '__main__':
     init_db()
+    iniciar_scheduler_backup()
     threading.Thread(target=lambda: serve(app,host='0.0.0.0',port=5000,threads=8), daemon=True).start()
     time.sleep(2)
     webbrowser.open("http://127.0.0.1:5000")

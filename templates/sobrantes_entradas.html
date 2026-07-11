@@ -1,0 +1,149 @@
+{% extends 'base.html' %}
+{% block title %}Entradas Almacén Sobrantes{% endblock %}
+{% block topbar_title %}Entradas a Almacén de Sobrantes{% endblock %}
+{% block topbar_badge %}Sobrantes{% endblock %}
+{% block content %}
+<div class="toolbar">
+  <a href="/sobrantes" class="btn btn-outline">← Volver a Almacén de Sobrantes</a>
+  <div class="toolbar-sep"></div>
+  <div class="search-input"><span class="search-icon">🔍</span>
+    <input type="text" id="gs" placeholder="Buscar..." oninput="globalSearch('gs','tbl')"></div>
+  <div class="toolbar-sep"></div>
+  <a href="/sobrantes/entradas/export" class="btn btn-outline">📥 Exportar Excel</a>
+</div>
+<div class="card">
+  <div class="card-header"><div class="card-icon">📥</div><h2>Entradas a Almacén de Sobrantes</h2>
+    <span class="badge badge-blue" style="margin-left:auto">{{ rows|length }} registros</span>
+  </div>
+  <div class="table-wrapper">
+    <table class="data-table" id="tbl">
+      <thead><tr>
+        <th>#</th><th>Cód.</th><th>Fecha</th><th>Insumo</th><th>Espesor</th><th>Tamaño</th>
+        <th>Unidad</th><th>Cantidad</th><th>Proyecto Origen</th><th>Descripción</th>
+        <th class="no-filter">Acc.</th>
+      </tr></thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td>{{ r.id }}</td>
+          <td><span class="badge badge-blue">{{ r.cod_prod }}</span></td>
+          <td>{{ r.fecha }}</td>
+          <td><strong>{{ r.insumo }}</strong></td>
+          <td>{{ r.espesor or '—' }}</td>
+          <td>{{ r.tamano or '—' }}</td>
+          <td>{{ r.unidad }}</td>
+          <td>{{ r.cantidad }}</td>
+          <td>{{ r.proyecto_origen or '—' }}</td>
+          <td>{{ r.descripcion or '—' }}</td>
+          <td class="actions">
+            <button class="btn btn-outline btn-sm btn-icon"
+              onclick="abrirEditarEntradaSob({{ r.id }},'{{ r.cod_prod|e }}','{{ r.fecha }}','{{ r.insumo|e }}','{{ r.espesor|e }}','{{ r.tamano|e }}','{{ r.unidad|e }}','{{ r.cantidad }}','{{ r.proyecto_origen|e }}','{{ r.descripcion|e }}')">✏️</button>
+            <button class="btn btn-danger btn-sm btn-icon" onclick="deleteRow('/sobrantes/entradas/delete/{{ r.id }}')">🗑️</button>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="11"><div class="table-empty"><div class="empty-icon">📥</div><p>Sin entradas registradas</p></div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-edit"><div class="modal" style="max-width:640px">
+  <div class="modal-header"><h3>✏️ Editar Entrada</h3><button class="modal-close" onclick="closeModal('modal-edit')">✕</button></div>
+  <div class="modal-body"><form id="form-edit"><input type="hidden" name="id"><div class="form-grid">
+
+    <div class="form-group"><label>Cód. Prod.</label>
+      <input type="text" id="edit-cod-display" readonly style="background:#f0f4f8;cursor:default"></div>
+    <div class="form-group"><label>Fecha</label><input type="date" name="fecha" id="edit-fecha"></div>
+
+    <div class="form-group full"><label>Insumo</label>
+      <input type="text" id="edit-insumo-display" readonly style="background:#f0f4f8;cursor:default"></div>
+    <div class="form-group"><label>Espesor</label>
+      <input type="text" id="edit-espesor-display" readonly style="background:#f0f4f8;cursor:default"></div>
+    <div class="form-group"><label>Unidad</label>
+      <input type="text" id="edit-unidad-display" readonly style="background:#f0f4f8;cursor:default"></div>
+
+    <div class="form-group"><label>Tamaño</label><input type="text" name="tamano" id="edit-tamano"></div>
+    <div class="form-group"><label>Cantidad</label><input type="number" name="cantidad" id="edit-cantidad" step="1" min="0"></div>
+
+    <!-- BUSCADOR DE PROYECTO ORIGEN (conectado a la BD de Proyectos) -->
+    <div class="form-group full" style="position:relative">
+      <label>Proyecto Origen — escribe para buscar</label>
+      <input type="text" id="edit-proy-buscar" autocomplete="off"
+        placeholder="Escribe el nombre del proyecto..."
+        oninput="filtrarProyectosEditEntradaSob(this.value)"
+        style="width:100%">
+      <div id="edit-proy-lista" style="
+        display:none; position:absolute; z-index:9999;
+        background:white; border:1px solid #ccc; border-radius:6px;
+        max-height:200px; overflow-y:auto; width:100%;
+        box-shadow:0 4px 12px rgba(0,0,0,.15); top:calc(100% + 2px); left:0">
+      </div>
+    </div>
+    <input type="hidden" name="proyecto_origen" id="edit-proy-val">
+
+    <div class="form-group full"><label>Descripción</label><input type="text" name="descripcion" id="edit-descripcion"></div>
+  </div><div class="form-row">
+    <button type="button" class="btn btn-outline" onclick="closeModal('modal-edit')">Cancelar</button>
+    <button type="button" class="btn btn-primary" id="btn-edit">💾 Actualizar</button>
+  </div></form></div>
+</div></div>
+{% endblock %}
+{% block scripts %}<script>
+initTableFilter('tbl');
+
+const PROYECTOS_EDIT_ENT = [
+  {% for p in proyectos %}
+  { nombre: "{{ p.nombre|e }}" },
+  {% endfor %}
+];
+
+function escHtmlES(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/'/g,'&#39;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+}
+
+function abrirEditarEntradaSob(id, cod, fecha, insumo, espesor, tamano, unidad, cantidad, proyectoOrigen, descripcion) {
+  document.querySelector('#form-edit [name="id"]').value = id;
+  document.getElementById('edit-cod-display').value = cod;
+  document.getElementById('edit-fecha').value = fecha;
+  document.getElementById('edit-insumo-display').value = insumo;
+  document.getElementById('edit-espesor-display').value = espesor || '—';
+  document.getElementById('edit-unidad-display').value = unidad;
+  document.getElementById('edit-tamano').value = tamano || '';
+  document.getElementById('edit-cantidad').value = cantidad;
+  document.getElementById('edit-proy-buscar').value = proyectoOrigen || '';
+  document.getElementById('edit-proy-val').value = proyectoOrigen || '';
+  document.getElementById('edit-descripcion').value = descripcion || '';
+  openModal('modal-edit');
+}
+
+function filtrarProyectosEditEntradaSob(q) {
+  document.getElementById('edit-proy-val').value = '';
+  const lista = document.getElementById('edit-proy-lista');
+  const term = q.trim().toLowerCase();
+  if (!term) { lista.style.display = 'none'; return; }
+  const matches = PROYECTOS_EDIT_ENT.filter(p => p.nombre.toLowerCase().includes(term)).slice(0, 50);
+  lista.innerHTML = matches.length ? matches.map(p => `
+    <div onclick="seleccionarProyectoEditEntradaSob('${escHtmlES(p.nombre)}')"
+      style="padding:9px 14px;cursor:pointer;border-bottom:1px solid #eee;font-size:13px"
+      onmouseover="this.style.background='#f0f4f8'" onmouseout="this.style.background=''">
+      📁 ${escHtmlES(p.nombre)}
+    </div>`).join('') : '<div style="padding:10px 14px;color:#999">Sin resultados</div>';
+  lista.style.display = 'block';
+}
+function seleccionarProyectoEditEntradaSob(nombre) {
+  document.getElementById('edit-proy-buscar').value = nombre;
+  document.getElementById('edit-proy-val').value = nombre;
+  document.getElementById('edit-proy-lista').style.display = 'none';
+}
+document.addEventListener('click', e => {
+  if (!e.target.closest('#edit-proy-buscar') && !e.target.closest('#edit-proy-lista'))
+    document.getElementById('edit-proy-lista').style.display = 'none';
+});
+
+document.getElementById('btn-edit').addEventListener('click', () => {
+  const id = document.querySelector('#form-edit [name="id"]').value;
+  submitForm(`/sobrantes/entradas/edit/${id}`, 'form-edit', 'Entrada actualizada y stock recalculado');
+});
+</script>{% endblock %}

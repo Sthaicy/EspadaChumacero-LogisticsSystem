@@ -16,7 +16,7 @@
   </div>
   <div class="table-wrapper">
     <table class="data-table" id="tbl">
-      <thead><tr><th>#</th><th>Cód.</th><th>Fecha</th><th>Insumo</th><th>Cantidad</th><th>Unidad</th><th>Proyecto</th><th>Cód. Proy.</th><th>Sobrantes</th><th class="no-filter">Acc.</th></tr></thead>
+      <thead><tr><th>#</th><th>Cód.</th><th>Fecha</th><th>Insumo</th><th>Cantidad</th><th>Unidad</th><th>Proyecto</th><th class="no-filter">Acc.</th></tr></thead>
       <tbody>
         {% for r in rows %}
         <tr>
@@ -27,30 +27,48 @@
           <td>{{ r.cantidad }}</td>
           <td>{{ r.unidad }}</td>
           <td>{{ r.proyecto }}</td>
-          <td>{{ r.codigo_proyecto }}</td>
-          <td>{{ r.sobrantes or 0 }}</td>
           <td class="actions">
             <button class="btn btn-outline btn-sm btn-icon"
-              onclick="populateEdit('modal-edit',{id:{{ r.id }},cod_prod:'{{ r.cod_prod|e }}',fecha:'{{ r.fecha }}',insumo:'{{ r.insumo|e }}',cantidad:'{{ r.cantidad }}',unidad:'{{ r.unidad|e }}',proyecto:'{{ r.proyecto|e }}',codigo_proyecto:'{{ r.codigo_proyecto|e }}',sobrantes:'{{ r.sobrantes or 0 }}'})">✏️</button>
+              onclick="abrirEditarSalida({{ r.id }},'{{ r.cod_prod|e }}','{{ r.fecha }}','{{ r.insumo|e }}','{{ r.cantidad }}','{{ r.unidad|e }}','{{ r.proyecto|e }}')">✏️</button>
             <button class="btn btn-danger btn-sm btn-icon" onclick="deleteRow('/almacen/salida/delete/{{ r.id }}')">🗑️</button>
           </td>
         </tr>
-        {% else %}<tr><td colspan="10"><div class="table-empty"><div class="empty-icon">📤</div><p>Sin salidas registradas</p></div></td></tr>{% endfor %}
+        {% else %}<tr><td colspan="8"><div class="table-empty"><div class="empty-icon">📤</div><p>Sin salidas registradas</p></div></td></tr>{% endfor %}
       </tbody>
     </table>
   </div>
 </div>
-<div class="modal-overlay" id="modal-edit"><div class="modal">
+
+<div class="modal-overlay" id="modal-edit"><div class="modal" style="max-width:620px">
   <div class="modal-header"><h3>✏️ Editar Salida</h3><button class="modal-close" onclick="closeModal('modal-edit')">✕</button></div>
   <div class="modal-body"><form id="form-edit"><input type="hidden" name="id"><div class="form-grid">
-    <div class="form-group"><label>Cód. Prod.</label><input type="text" name="cod_prod"></div>
-    <div class="form-group"><label>Fecha</label><input type="date" name="fecha"></div>
-    <div class="form-group full"><label>Insumo</label><input type="text" name="insumo"></div>
-    <div class="form-group"><label>Cantidad</label><input type="number" name="cantidad" step="0.001" min="0"></div>
-    <div class="form-group"><label>Unidad</label><input type="text" name="unidad"></div>
-    <div class="form-group"><label>Proyecto</label><input type="text" name="proyecto"></div>
-    <div class="form-group"><label>Cód. Proyecto</label><input type="text" name="codigo_proyecto"></div>
-    <div class="form-group"><label>Sobrantes</label><input type="number" name="sobrantes" step="0.001" min="0"></div>
+
+    <div class="form-group"><label>Cód. Prod.</label>
+      <input type="text" id="edit-cod-display" readonly style="background:#f0f4f8;cursor:default"></div>
+    <div class="form-group"><label>Fecha</label><input type="date" name="fecha" id="edit-fecha"></div>
+    <div class="form-group full"><label>Insumo</label>
+      <input type="text" id="edit-insumo-display" readonly style="background:#f0f4f8;cursor:default"></div>
+
+    <div class="form-group"><label>Cantidad</label><input type="number" name="cantidad" id="edit-cantidad" step="1" min="0"></div>
+    <div class="form-group"><label>Unidad</label>
+      <input type="text" id="edit-unidad-display" readonly style="background:#f0f4f8;cursor:default"></div>
+
+    <!-- BUSCADOR DE PROYECTO (conectado a la BD de Proyectos) -->
+    <div class="form-group full" style="position:relative">
+      <label>Proyecto — escribe para buscar</label>
+      <input type="text" id="edit-proy-buscar" autocomplete="off"
+        placeholder="Escribe el nombre del proyecto..."
+        oninput="filtrarProyectosEditSalida(this.value)"
+        style="width:100%">
+      <div id="edit-proy-lista" style="
+        display:none; position:absolute; z-index:9999;
+        background:white; border:1px solid #ccc; border-radius:6px;
+        max-height:200px; overflow-y:auto; width:100%;
+        box-shadow:0 4px 12px rgba(0,0,0,.15); top:calc(100% + 2px); left:0">
+      </div>
+      <small id="edit-err-proy" style="color:var(--danger);display:none">⚠️ Debes seleccionar un proyecto de la lista</small>
+    </div>
+    <input type="hidden" name="proyecto" id="edit-proy-val">
   </div><div class="form-row">
     <button type="button" class="btn btn-outline" onclick="closeModal('modal-edit')">Cancelar</button>
     <button type="button" class="btn btn-primary" id="btn-edit">💾 Actualizar</button>
@@ -59,7 +77,66 @@
 {% endblock %}
 {% block scripts %}<script>
 initTableFilter('tbl');
+
+const PROYECTOS_EDIT = [
+  {% for p in proyectos %}
+  { nombre: "{{ p.nombre|e }}" },
+  {% endfor %}
+];
+
+function escHtmlS(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/'/g,'&#39;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+}
+
+let proyectoEditSeleccionado = false;
+
+function abrirEditarSalida(id, cod, fecha, insumo, cantidad, unidad, proyecto) {
+  document.querySelector('#form-edit [name="id"]').value = id;
+  document.getElementById('edit-cod-display').value = cod;
+  document.getElementById('edit-fecha').value = fecha;
+  document.getElementById('edit-insumo-display').value = insumo;
+  document.getElementById('edit-cantidad').value = cantidad;
+  document.getElementById('edit-unidad-display').value = unidad;
+  document.getElementById('edit-proy-buscar').value = proyecto || '';
+  document.getElementById('edit-proy-val').value = proyecto || '';
+  proyectoEditSeleccionado = !!proyecto;
+  document.getElementById('edit-err-proy').style.display = 'none';
+  openModal('modal-edit');
+}
+
+function filtrarProyectosEditSalida(q) {
+  proyectoEditSeleccionado = false;
+  document.getElementById('edit-proy-val').value = '';
+  const lista = document.getElementById('edit-proy-lista');
+  const term = q.trim().toLowerCase();
+  if (!term) { lista.style.display = 'none'; return; }
+  const matches = PROYECTOS_EDIT.filter(p => p.nombre.toLowerCase().includes(term)).slice(0, 50);
+  lista.innerHTML = matches.length ? matches.map(p => `
+    <div onclick="seleccionarProyectoEditSalida('${escHtmlS(p.nombre)}')"
+      style="padding:9px 14px;cursor:pointer;border-bottom:1px solid #eee;font-size:13px"
+      onmouseover="this.style.background='#f0f4f8'" onmouseout="this.style.background=''">
+      📁 ${escHtmlS(p.nombre)}
+    </div>`).join('') : '<div style="padding:10px 14px;color:#999">Sin resultados</div>';
+  lista.style.display = 'block';
+}
+function seleccionarProyectoEditSalida(nombre) {
+  proyectoEditSeleccionado = true;
+  document.getElementById('edit-proy-buscar').value = nombre;
+  document.getElementById('edit-proy-val').value = nombre;
+  document.getElementById('edit-proy-lista').style.display = 'none';
+  document.getElementById('edit-err-proy').style.display = 'none';
+}
+document.addEventListener('click', e => {
+  if (!e.target.closest('#edit-proy-buscar') && !e.target.closest('#edit-proy-lista'))
+    document.getElementById('edit-proy-lista').style.display = 'none';
+});
+
 document.getElementById('btn-edit').addEventListener('click',()=>{
+  if (!proyectoEditSeleccionado || !document.getElementById('edit-proy-val').value) {
+    document.getElementById('edit-err-proy').style.display = 'block';
+    toast('Selecciona un proyecto válido de la lista', 'error');
+    return;
+  }
   const id=document.querySelector('#form-edit [name="id"]').value;
   submitForm(`/almacen/salida/edit/${id}`,'form-edit','Salida actualizada');
 });

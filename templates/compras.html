@@ -38,7 +38,7 @@
           <td>{{ r.detalle }}</td>
           <td class="actions">
             <button class="btn btn-outline btn-sm btn-icon"
-              onclick="populateEdit('modal-edit',{id:{{ r.id }},fecha:'{{ r.fecha }}',proveedor_id:'{{ r.proveedor_id or '' }}',cod_prod:'{{ r.cod_prod|e }}',insumo:'{{ r.insumo|e }}',cantidad:'{{ r.cantidad }}',unidad:'{{ r.unidad|e }}',precio_unitario:'{{ r.precio_unitario or 0 }}',tipo_documento:'{{ r.tipo_documento|e }}',nro_documento:'{{ r.nro_documento|e }}',tipo_pago:'{{ r.tipo_pago|e }}',detalle:'{{ r.detalle|e }}'})">✏️</button>
+              onclick="populateEdit('modal-edit',{id:{{ r.id }},fecha:'{{ r.fecha }}',proveedor_id:'{{ r.proveedor_id or "" }}',cod_prod:'{{ r.cod_prod|e }}',insumo:'{{ r.insumo|e }}',cantidad:'{{ r.cantidad }}',unidad:'{{ r.unidad|e }}',precio_unitario:'{{ r.precio_unitario or 0 }}',tipo_documento:'{{ r.tipo_documento|e }}',nro_documento:'{{ r.nro_documento|e }}',tipo_pago:'{{ r.tipo_pago|e }}',detalle:'{{ r.detalle|e }}'})">✏️</button>
             <button class="btn btn-danger btn-sm btn-icon" onclick="deleteRow('/compras/delete/{{ r.id }}')">🗑️</button>
           </td>
         </tr>
@@ -64,23 +64,49 @@
         {% for p in proveedores %}<option value="{{ p.id }}">{{ p.nombre }}</option>{% endfor %}
       </select>
     </div>
-    <div class="form-group"><label>Cód. Producto</label><input type="text" name="cod_prod" placeholder="COD-001..." required></div>
-    <div class="form-group"><label>Insumo</label><input type="text" name="insumo" placeholder="Nombre insumo..." required></div>
+
+    <!-- BUSCADOR INSUMO (desde catálogo Insumos) -->
+    <div class="form-group full" style="position:relative">
+      <label>Insumo — escribe para buscar</label>
+      <input type="text" id="add-ins-buscar" autocomplete="off"
+        placeholder="Escribe el nombre del insumo..."
+        oninput="filtrarInsumosCompra(this.value,'add')"
+        style="width:100%">
+      <div id="add-ins-lista" style="
+        display:none; position:absolute; z-index:9999;
+        background:white; border:1px solid #ccc; border-radius:6px;
+        max-height:220px; overflow-y:auto; width:100%;
+        box-shadow:0 4px 12px rgba(0,0,0,.15); top:calc(100% + 2px); left:0">
+      </div>
+      <small id="add-err-ins" style="color:var(--danger);display:none">⚠️ Selecciona un insumo válido de la lista</small>
+    </div>
+    <input type="hidden" name="insumo" id="add-insumo">
+
+    <div class="form-group"><label>Cód. Producto</label>
+      <input type="text" id="add-cod-display" readonly
+        style="background:#f0f4f8;cursor:default" placeholder="Automático según insumo...">
+    </div>
+    <input type="hidden" name="cod_prod" id="add-cod-val">
+
     <div class="form-group"><label>Cantidad</label><input type="number" id="add-cant" name="cantidad" step="1" min="0" placeholder="0" oninput="calcTotal('add-cant','add-pu','add-total')" required></div>
-    <div class="form-group"><label>Unidad</label><input type="text" name="unidad" placeholder="kg/lt/m/unid..."></div>
+    <div class="form-group"><label>Unidad</label><input type="text" name="unidad" id="add-unidad" readonly style="background:#f0f4f8;cursor:default" placeholder="Automático..."></div>
     <div class="form-group"><label>Precio Unitario (Bs.)</label><input type="number" id="add-pu" name="precio_unitario" step="1" min="0" placeholder="0.00" oninput="calcTotal('add-cant','add-pu','add-total')"></div>
     <div class="form-group"><label>Precio Total (Bs.)</label><input type="number" id="add-total" name="precio_total" step="1" readonly style="background:#f5f5f5"></div>
     <div class="form-group"><label>Tipo Documento</label>
-      <select name="tipo_documento"><option value="">—</option><option>Factura</option><option>Recibo</option><option>Nota</option><option>Otro</option></select>
+      <select name="tipo_documento"><option value="">—</option>
+        {% for t in tipos_documento %}<option>{{ t }}</option>{% endfor %}
+      </select>
     </div>
     <div class="form-group"><label>N° Documento</label><input type="text" name="nro_documento" placeholder="N° doc..."></div>
     <div class="form-group"><label>Tipo de Pago</label>
-      <select name="tipo_pago"><option value="">—</option><option>Contado</option><option>Crédito</option><option>Transferencia</option><option>Otro</option></select>
+      <select name="tipo_pago"><option value="">—</option>
+        {% for t in tipos_pago %}<option>{{ t }}</option>{% endfor %}
+      </select>
     </div>
     <div class="form-group full"><label>Detalle</label><input type="text" name="detalle" placeholder="Detalle..."></div>
   </div><div class="form-row">
     <button type="button" class="btn btn-outline" onclick="closeModal('modal-add')">Cancelar</button>
-    <button type="button" class="btn btn-accent" onclick="submitForm('/compras/add','form-add','Compra registrada y almacén actualizado')">💾 Guardar</button>
+    <button type="button" class="btn btn-accent" onclick="guardarCompra()">💾 Guardar</button>
   </div></form></div>
 </div></div>
 
@@ -94,18 +120,25 @@
         {% for p in proveedores %}<option value="{{ p.id }}">{{ p.nombre }}</option>{% endfor %}
       </select>
     </div>
-    <div class="form-group"><label>Cód. Producto</label><input type="text" name="cod_prod" required></div>
-    <div class="form-group"><label>Insumo</label><input type="text" name="insumo" required></div>
+    <div class="form-group"><label>Cód. Producto</label>
+      <input type="text" name="cod_prod" readonly style="background:#f0f4f8;cursor:default"></div>
+    <div class="form-group"><label>Insumo</label>
+      <input type="text" name="insumo" readonly style="background:#f0f4f8;cursor:default"></div>
     <div class="form-group"><label>Cantidad</label><input type="number" id="edit-cant" name="cantidad" step="1" min="0" oninput="calcTotal('edit-cant','edit-pu','edit-total')"></div>
-    <div class="form-group"><label>Unidad</label><input type="text" name="unidad"></div>
+    <div class="form-group"><label>Unidad</label>
+      <input type="text" name="unidad" readonly style="background:#f0f4f8;cursor:default"></div>
     <div class="form-group"><label>Precio Unitario</label><input type="number" id="edit-pu" name="precio_unitario" step="1" min="0" oninput="calcTotal('edit-cant','edit-pu','edit-total')"></div>
     <div class="form-group"><label>Precio Total</label><input type="number" id="edit-total" name="precio_total" step="1" readonly style="background:#f5f5f5"></div>
     <div class="form-group"><label>Tipo Documento</label>
-      <select name="tipo_documento"><option value="">—</option><option>Factura</option><option>Recibo</option><option>Nota</option><option>Otro</option></select>
+      <select name="tipo_documento"><option value="">—</option>
+        {% for t in tipos_documento %}<option>{{ t }}</option>{% endfor %}
+      </select>
     </div>
     <div class="form-group"><label>N° Documento</label><input type="text" name="nro_documento"></div>
     <div class="form-group"><label>Tipo de Pago</label>
-      <select name="tipo_pago"><option value="">—</option><option>Contado</option><option>Crédito</option><option>Transferencia</option><option>Otro</option></select>
+      <select name="tipo_pago"><option value="">—</option>
+        {% for t in tipos_pago %}<option>{{ t }}</option>{% endfor %}
+      </select>
     </div>
     <div class="form-group full"><label>Detalle</label><input type="text" name="detalle"></div>
   </div><div class="form-row">
@@ -127,4 +160,85 @@ document.getElementById('btn-edit').addEventListener('click',()=>{
   const id=document.querySelector('#form-edit [name="id"]').value;
   submitForm(`/compras/edit/${id}`,'form-edit','Compra actualizada');
 });
+
+// ── CATÁLOGO DE INSUMOS PARA AUTOCOMPLETAR ─────────────────────────────────────
+const INSUMOS_COMPRA = [
+  {% for i in insumos %}
+  { cod_prod: "{{ i.cod_prod|e }}", nombre: "{{ i.nombre|e }}", unidad: "{{ i.unidad|e }}" },
+  {% endfor %}
+];
+
+function escHtmlC(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/'/g,'&#39;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+}
+
+let insumoCompraSeleccionado = false;
+
+function filtrarInsumosCompra(q, prefix) {
+  insumoCompraSeleccionado = false;
+  document.getElementById(`${prefix}-insumo`).value = '';
+  document.getElementById(`${prefix}-cod-val`).value = '';
+  document.getElementById(`${prefix}-cod-display`).value = '';
+  document.getElementById(`${prefix}-unidad`).value = '';
+  const lista = document.getElementById(`${prefix}-ins-lista`);
+  const term = q.trim().toLowerCase();
+  if (!term) { lista.style.display = 'none'; return; }
+
+  const matches = INSUMOS_COMPRA.filter(i => i.nombre.toLowerCase().includes(term)).slice(0, 50);
+  if (!matches.length) {
+    lista.innerHTML = '<div style="padding:10px 14px;color:#999">Sin resultados. Agrégalo en Insumos.</div>';
+    lista.style.display = 'block';
+    return;
+  }
+  lista.innerHTML = matches.map(i => `
+    <div onclick="seleccionarInsumoCompra('${escHtmlC(i.nombre)}','${escHtmlC(i.cod_prod)}','${escHtmlC(i.unidad)}','${prefix}')"
+      style="padding:9px 14px;cursor:pointer;border-bottom:1px solid #eee;font-size:13px"
+      onmouseover="this.style.background='#f0f4f8'" onmouseout="this.style.background=''">
+      ${escHtmlC(i.nombre)} <span style="float:right;color:#666">${escHtmlC(i.cod_prod)}</span>
+    </div>`).join('');
+  lista.style.display = 'block';
+}
+
+function seleccionarInsumoCompra(nombre, cod, unidad, prefix) {
+  insumoCompraSeleccionado = true;
+  document.getElementById(`${prefix}-ins-buscar`).value = nombre;
+  document.getElementById(`${prefix}-insumo`).value = nombre;
+  document.getElementById(`${prefix}-cod-val`).value = cod;
+  document.getElementById(`${prefix}-cod-display`).value = cod;
+  document.getElementById(`${prefix}-unidad`).value = unidad;
+  document.getElementById(`${prefix}-ins-lista`).style.display = 'none';
+  document.getElementById(`${prefix}-err-ins`).style.display = 'none';
+}
+
+document.addEventListener('click', e => {
+  if (!e.target.closest('#add-ins-buscar') && !e.target.closest('#add-ins-lista'))
+    document.getElementById('add-ins-lista').style.display = 'none';
+});
+
+function guardarCompra() {
+  if (!insumoCompraSeleccionado || !document.getElementById('add-insumo').value) {
+    document.getElementById('add-err-ins').style.display = 'block';
+    toast('Selecciona un insumo válido de la lista', 'error');
+    return;
+  }
+  submitForm('/compras/add','form-add','Compra registrada y almacén actualizado');
+}
+
+const _origOpenModalCompras = openModal;
+openModal = function(id) {
+  _origOpenModalCompras(id);
+  if (id === 'modal-add') {
+    insumoCompraSeleccionado = false;
+    document.getElementById('add-ins-buscar').value = '';
+    document.getElementById('add-insumo').value = '';
+    document.getElementById('add-cod-val').value = '';
+    document.getElementById('add-cod-display').value = '';
+    document.getElementById('add-unidad').value = '';
+    document.getElementById('add-ins-lista').style.display = 'none';
+    document.getElementById('add-err-ins').style.display = 'none';
+  } else {
+    const modal = document.getElementById(id);
+    if (modal) setTimeout(() => initSelects(modal), 80);
+  }
+};
 </script>{% endblock %}

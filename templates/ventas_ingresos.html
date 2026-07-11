@@ -18,7 +18,7 @@
   <div class="table-wrapper">
     <table class="data-table" id="tbl">
       <thead><tr>
-        <th>#</th><th>Fecha</th><th>Cód.</th><th>Proyecto</th><th>Cliente</th>
+        <th>#</th><th>Fecha</th><th>Cód.</th><th>Proyecto</th>
         <th>M. Facturado</th><th>N° Factura</th><th>Monto</th><th>Tipo Pago</th><th>Observaciones</th>
         <th class="no-filter">Acciones</th>
       </tr></thead>
@@ -28,7 +28,6 @@
           <td>{{ r.id }}</td><td>{{ r.fecha }}</td>
           <td><span class="badge badge-blue">{{ r.codigo_proyecto }}</span></td>
           <td><strong>{{ r.nombre_proyecto }}</strong></td>
-          <td>{{ r.cliente_nombre or '—' }}</td>
           <td class="col-fact">{{ r.monto_facturado or 0 }}</td>
           <td>{{ r.nro_factura }}</td>
           <td class="col-monto">{{ r.monto or 0 }}</td>

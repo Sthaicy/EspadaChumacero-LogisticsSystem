@@ -38,6 +38,10 @@
       <option value="Asignacion_Herramientas">Asignación Herramientas</option>
       <option value="Consumibles">Consumibles</option>
       <option value="Entrega_Consumibles">Entrega Consumibles</option>
+      <option value="Insumos">Insumos</option>
+      <option value="Almacen_Sobrantes">Almacén de Sobrantes</option>
+      <option value="Entradas_Almacen_Sobrantes">Entradas Almacén Sobrantes</option>
+      <option value="Salidas_Almacen_Sobrantes">Salidas Almacén Sobrantes</option>
     </select>
     <button class="btn btn-danger" onclick="eliminarTabla()">🗑️ Limpiar Tabla</button>
   </div>
@@ -46,6 +50,54 @@
     <h3>🏭 Stock de Almacén</h3>
     <p>Accede al inventario actual con stock en tiempo real actualizado desde compras y salidas.</p>
     <a href="/almacen" class="btn btn-primary">Ver Almacén</a>
+  </div>
+
+  <div class="config-card">
+    <h3>💳 Tipos de Pago (Compras)</h3>
+    <p>Opciones disponibles en el campo "Tipo de Pago" del formulario de Compras.</p>
+    <div style="display:flex;gap:6px;margin-bottom:10px">
+      <input type="text" id="nuevo-tipo-pago" placeholder="Ej: Contado, Crédito..." style="flex:1;padding:8px;border:1.5px solid var(--border);border-radius:6px;font-family:Barlow,sans-serif">
+    </div>
+    <button class="btn btn-accent" onclick="agregarTipoPago()" style="width:100%;margin-bottom:10px">➕ Agregar Tipo de Pago</button>
+    <div style="max-height:180px;overflow-y:auto">
+      <table class="data-table">
+        <thead><tr><th>Tipo de Pago</th><th class="no-filter">Acc.</th></tr></thead>
+        <tbody id="tbl-tipos-pago">
+          {% for t in tipos_pago %}
+          <tr>
+            <td>{{ t.valor }}</td>
+            <td><button class="btn btn-danger btn-sm btn-icon" onclick="eliminarTipoPago({{ t.id }})">🗑️</button></td>
+          </tr>
+          {% else %}
+          <tr><td colspan="2"><div class="table-empty"><p>Sin tipos de pago registrados</p></div></td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="config-card">
+    <h3>📄 Tipos de Documento (Compras)</h3>
+    <p>Opciones disponibles en el campo "Tipo Documento" del formulario de Compras.</p>
+    <div style="display:flex;gap:6px;margin-bottom:10px">
+      <input type="text" id="nuevo-tipo-doc" placeholder="Ej: Factura, Recibo..." style="flex:1;padding:8px;border:1.5px solid var(--border);border-radius:6px;font-family:Barlow,sans-serif">
+    </div>
+    <button class="btn btn-accent" onclick="agregarTipoDocumento()" style="width:100%;margin-bottom:10px">➕ Agregar Tipo de Documento</button>
+    <div style="max-height:180px;overflow-y:auto">
+      <table class="data-table">
+        <thead><tr><th>Tipo de Documento</th><th class="no-filter">Acc.</th></tr></thead>
+        <tbody id="tbl-tipos-doc">
+          {% for t in tipos_documento %}
+          <tr>
+            <td>{{ t.valor }}</td>
+            <td><button class="btn btn-danger btn-sm btn-icon" onclick="eliminarTipoDocumento({{ t.id }})">🗑️</button></td>
+          </tr>
+          {% else %}
+          <tr><td colspan="2"><div class="table-empty"><p>Sin tipos de documento registrados</p></div></td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </div>
 
   <div class="config-card" style="grid-column: 1 / -1">
@@ -98,5 +150,39 @@ async function importarBackup(){
   const r=await fetch('/configuraciones/importar',{method:'POST',body:fd});
   const j=await r.json();
   toast(j.msg,j.ok?'success':'error');
+}
+
+async function agregarTipoPago(){
+  const valor = document.getElementById('nuevo-tipo-pago').value.trim();
+  if(!valor){ toast('Ingresa un valor','error'); return; }
+  const fd=new FormData(); fd.append('valor',valor);
+  const r=await fetch('/configuraciones/tipos_pago/add',{method:'POST',body:fd});
+  const j=await r.json();
+  toast(j.msg||(j.ok?'Tipo de pago agregado':'Error'), j.ok?'success':'error');
+  if(j.ok) setTimeout(()=>location.reload(),600);
+}
+
+async function eliminarTipoPago(id){
+  if(!confirm('¿Eliminar este tipo de pago?')) return;
+  const r=await fetch(`/configuraciones/tipos_pago/delete/${id}`,{method:'POST'});
+  const j=await r.json();
+  if(j.ok){ toast('Tipo de pago eliminado','success'); setTimeout(()=>location.reload(),500); }
+}
+
+async function agregarTipoDocumento(){
+  const valor = document.getElementById('nuevo-tipo-doc').value.trim();
+  if(!valor){ toast('Ingresa un valor','error'); return; }
+  const fd=new FormData(); fd.append('valor',valor);
+  const r=await fetch('/configuraciones/tipos_documento/add',{method:'POST',body:fd});
+  const j=await r.json();
+  toast(j.msg||(j.ok?'Tipo de documento agregado':'Error'), j.ok?'success':'error');
+  if(j.ok) setTimeout(()=>location.reload(),600);
+}
+
+async function eliminarTipoDocumento(id){
+  if(!confirm('¿Eliminar este tipo de documento?')) return;
+  const r=await fetch(`/configuraciones/tipos_documento/delete/${id}`,{method:'POST'});
+  const j=await r.json();
+  if(j.ok){ toast('Tipo de documento eliminado','success'); setTimeout(()=>location.reload(),500); }
 }
 </script>{% endblock %}

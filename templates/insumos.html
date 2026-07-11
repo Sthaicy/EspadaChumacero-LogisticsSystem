@@ -1,0 +1,92 @@
+{% extends 'base.html' %}
+{% block title %}Insumos{% endblock %}
+{% block topbar_title %}Insumos{% endblock %}
+{% block topbar_badge %}Catálogo{% endblock %}
+{% block content %}
+<div class="toolbar">
+  <button class="btn btn-accent" onclick="openModal('modal-add')">➕ Registrar Insumo</button>
+  <div class="toolbar-sep"></div>
+  <div class="search-input"><span class="search-icon">🔍</span>
+    <input type="text" id="gs" placeholder="Buscar..." oninput="globalSearch('gs','tbl')">
+  </div>
+  <div class="toolbar-sep"></div>
+  <a href="/insumos/export" class="btn btn-outline">📥 Exportar Excel</a>
+</div>
+
+<div class="card">
+  <div class="card-header"><div class="card-icon">📐</div><h2>Catálogo de Insumos</h2>
+    <span class="badge badge-blue" style="margin-left:auto">{{ rows|length }} insumos</span>
+  </div>
+  <div class="table-wrapper">
+    <table class="data-table" id="tbl">
+      <thead><tr>
+        <th>Cód. Prod.</th><th>Insumo</th><th>Unidad</th><th>Espesor</th><th>Detalle</th>
+        <th class="no-filter">Acc.</th>
+      </tr></thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td><span class="badge badge-blue">{{ r.cod_prod }}</span></td>
+          <td><strong>{{ r.nombre }}</strong></td>
+          <td>{{ r.unidad }}</td>
+          <td>{{ r.espesor or '—' }}</td>
+          <td>{{ r.detalle or '—' }}</td>
+          <td class="actions">
+            <button class="btn btn-outline btn-sm btn-icon" title="Editar"
+              onclick="populateEdit('modal-edit',{id:{{ r.id }},cod_prod:'{{ r.cod_prod|e }}',nombre:'{{ r.nombre|e }}',unidad:'{{ r.unidad|e }}',espesor:'{{ r.espesor|e }}',detalle:'{{ r.detalle|e }}'})">✏️</button>
+            <button class="btn btn-danger btn-sm btn-icon" title="Eliminar"
+              onclick="deleteRow('/insumos/delete/{{ r.id }}')">🗑️</button>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6"><div class="table-empty"><div class="empty-icon">📐</div><p>No hay insumos registrados.</p></div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- MODAL REGISTRAR INSUMO -->
+<div class="modal-overlay" id="modal-add"><div class="modal" style="max-width:560px">
+  <div class="modal-header"><h3>➕ Registrar Insumo</h3><button class="modal-close" onclick="closeModal('modal-add')">✕</button></div>
+  <div class="modal-body"><form id="form-add"><div class="form-grid">
+    <div class="form-group"><label>Cód. Prod.</label>
+      <input type="text" name="cod_prod" placeholder="Ej: 10MT_INX" required style="text-transform:uppercase">
+    </div>
+    <div class="form-group"><label>Insumo</label><input type="text" name="nombre" placeholder="Ej: PLANCHA INOX" required></div>
+    <div class="form-group"><label>Unidad</label><input type="text" name="unidad" placeholder="Ej: HOJA, PERFIL, TUBO..." required></div>
+    <div class="form-group"><label>Espesor</label>
+      <input type="text" name="espesor" placeholder="Ej: 1,5MM (opcional)">
+    </div>
+    <div class="form-group full"><label>Detalle</label><input type="text" name="detalle" placeholder="Observaciones..."></div>
+  </div><div class="form-row">
+    <button type="button" class="btn btn-outline" onclick="closeModal('modal-add')">Cancelar</button>
+    <button type="button" class="btn btn-accent" onclick="submitForm('/insumos/add','form-add','Insumo registrado')">💾 Guardar</button>
+  </div></form></div>
+</div></div>
+
+<!-- MODAL EDITAR -->
+<div class="modal-overlay" id="modal-edit"><div class="modal" style="max-width:560px">
+  <div class="modal-header"><h3>✏️ Editar Insumo</h3><button class="modal-close" onclick="closeModal('modal-edit')">✕</button></div>
+  <div class="modal-body"><form id="form-edit"><input type="hidden" name="id"><div class="form-grid">
+    <div class="form-group"><label>Cód. Prod.</label>
+      <input type="text" name="cod_prod" readonly style="background:#f0f4f8;cursor:default">
+    </div>
+    <div class="form-group"><label>Insumo</label><input type="text" name="nombre" required></div>
+    <div class="form-group"><label>Unidad</label><input type="text" name="unidad" required></div>
+    <div class="form-group"><label>Espesor</label><input type="text" name="espesor" placeholder="Opcional"></div>
+    <div class="form-group full"><label>Detalle</label><input type="text" name="detalle"></div>
+  </div><div class="form-row">
+    <button type="button" class="btn btn-outline" onclick="closeModal('modal-edit')">Cancelar</button>
+    <button type="button" class="btn btn-primary" id="btn-edit">💾 Actualizar</button>
+  </div></form></div>
+</div></div>
+{% endblock %}
+
+{% block scripts %}<script>
+initTableFilter('tbl');
+document.getElementById('btn-edit').addEventListener('click', () => {
+  const id = document.querySelector('#form-edit [name="id"]').value;
+  submitForm(`/insumos/edit/${id}`, 'form-edit', 'Insumo actualizado');
+});
+</script>{% endblock %}

@@ -5,8 +5,10 @@
 {% block content %}
 <div class="toolbar">
   <button class="btn btn-accent" onclick="openModal('modal-salida')">📤 Registrar Salida</button>
+  <button class="btn btn-outline" onclick="openModal('modal-excedente')">↩️ Agregar Excedente</button>
   <a href="/almacen/salidas"  class="btn btn-outline">📋 Salidas de Almacén</a>
   <a href="/almacen/entradas" class="btn btn-outline">📥 Entradas (Compras)</a>
+  <a href="/proyectos" class="btn btn-outline">📁 Proyectos</a>
   <div class="toolbar-sep"></div>
   <div class="search-input"><span class="search-icon">🔍</span>
     <input type="text" id="gs" placeholder="Buscar..." oninput="globalSearch('gs','tbl')">
@@ -21,7 +23,7 @@
   </div>
   <div class="table-wrapper">
     <table class="data-table" id="tbl">
-      <thead><tr><th>#</th><th>Cód. Prod.</th><th>Insumo</th><th>Entradas</th><th>Salidas</th><th>Stock</th><th>Unidad</th><th>Descripción/Cliente</th><th class="no-filter">Acc.</th></tr></thead>
+      <thead><tr><th>#</th><th>Cód. Prod.</th><th>Insumo</th><th>Entradas</th><th>Salidas</th><th>Stock</th><th>Unidad</th><th>Descripción</th></tr></thead>
       <tbody>
         {% for r in rows %}
         <tr>
@@ -33,14 +35,9 @@
               {% elif (r.stock or 0) <= 5 %}<span class="badge badge-accent">{{ r.stock }}</span>
               {% else %}<span class="badge badge-green">{{ r.stock }}</span>{% endif %}</td>
           <td>{{ r.unidad }}</td><td>{{ r.descripcion_cliente }}</td>
-          <td class="actions">
-            <button class="btn btn-outline btn-sm btn-icon"
-              onclick="populateEdit('modal-edit',{id:{{ r.id }},cod_prod:'{{ r.cod_prod|e }}',insumo:'{{ r.insumo|e }}',unidad:'{{ r.unidad|e }}',descripcion_cliente:'{{ r.descripcion_cliente|e }}'})">✏️</button>
-            <button class="btn btn-danger btn-sm btn-icon" onclick="deleteRow('/almacen/delete/{{ r.id }}')">🗑️</button>
-          </td>
         </tr>
         {% else %}
-        <tr><td colspan="9"><div class="table-empty"><div class="empty-icon">🏭</div><p>Almacén vacío. Registra compras para generar stock.</p></div></td></tr>
+        <tr><td colspan="8"><div class="table-empty"><div class="empty-icon">🏭</div><p>Almacén vacío. Registra compras para generar stock.</p></div></td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -98,7 +95,7 @@
       <div class="form-group" style="position:relative">
         <label>Proyecto — escribe para buscar</label>
         <input type="text" id="proy-buscar" autocomplete="off"
-          placeholder="Escribe código o nombre del proyecto..."
+          placeholder="Escribe el nombre del proyecto..."
           oninput="filtrarProyectos(this.value)"
           style="width:100%">
         <div id="proy-lista" style="
@@ -110,17 +107,8 @@
         <small id="err-proy" style="color:var(--danger);display:none">⚠️ Debes seleccionar un proyecto</small>
       </div>
 
-      <div class="form-group"><label>Código Proyecto</label>
-        <input type="text" name="codigo_proyecto" id="sal-codproy" readonly
-          style="background:#f0f4f8;cursor:default" placeholder="Automático...">
-      </div>
-
       <!-- Campos ocultos para el form -->
       <input type="hidden" name="proyecto" id="sal-proy-val">
-
-      <div class="form-group"><label>Sobrantes</label>
-        <input type="number" name="sobrantes" step="1" min="0" placeholder="0">
-      </div>
     </div>
 
     <div class="form-row">
@@ -130,18 +118,75 @@
   </form></div>
 </div></div>
 
-<!-- MODAL EDITAR -->
-<div class="modal-overlay" id="modal-edit"><div class="modal">
-  <div class="modal-header"><h3>✏️ Editar Ítem Almacén</h3><button class="modal-close" onclick="closeModal('modal-edit')">✕</button></div>
-  <div class="modal-body"><form id="form-edit"><input type="hidden" name="id"><div class="form-grid">
-    <div class="form-group"><label>Cód. Prod.</label><input type="text" name="cod_prod"></div>
-    <div class="form-group"><label>Insumo</label><input type="text" name="insumo"></div>
-    <div class="form-group"><label>Unidad</label><input type="text" name="unidad"></div>
-    <div class="form-group full"><label>Descripción / Cliente</label><input type="text" name="descripcion_cliente"></div>
-  </div><div class="form-row">
-    <button type="button" class="btn btn-outline" onclick="closeModal('modal-edit')">Cancelar</button>
-    <button type="button" class="btn btn-primary" id="btn-edit">💾 Actualizar</button>
-  </div></form></div>
+<!-- MODAL AGREGAR EXCEDENTE -->
+<div class="modal-overlay" id="modal-excedente"><div class="modal" style="max-width:620px">
+  <div class="modal-header"><h3>↩️ Agregar Excedente</h3><button class="modal-close" onclick="closeModal('modal-excedente')">✕</button></div>
+  <div class="modal-body">
+    <p style="color:#666;font-size:13px;margin-bottom:14px">
+      Devuelve al stock material que se sacó pero no se usó por completo.
+      Ejemplo: sacaste 5 electrodos, usaste 3 — los 2 restantes vuelven aquí al almacén.
+      Indica el <strong>Proyecto Origen</strong> para que el dinero de ese material se reste
+      del "Material Gastado" de ese proyecto.
+    </p>
+    <form id="form-excedente">
+      <div class="form-grid">
+
+        <!-- BUSCADOR DE PRODUCTO -->
+        <div class="form-group" style="grid-column:1/-1; position:relative">
+          <label>Producto — escribe para buscar</label>
+          <input type="text" id="exc-prod-buscar" autocomplete="off"
+            placeholder="Escribe código o nombre del producto..."
+            oninput="filtrarProductosExcedente(this.value)"
+            style="width:100%">
+          <div id="exc-prod-lista" style="
+            display:none; position:absolute; z-index:9999;
+            background:white; border:1px solid #ccc; border-radius:6px;
+            max-height:220px; overflow-y:auto; width:100%;
+            box-shadow:0 4px 12px rgba(0,0,0,.15); top:calc(100% + 2px); left:0">
+          </div>
+          <small id="exc-err-prod" style="color:var(--danger);display:none">⚠️ Debes seleccionar un producto de la lista</small>
+        </div>
+
+        <input type="hidden" name="cod_prod" id="exc-cod">
+        <input type="hidden" name="insumo" id="exc-insumo">
+
+        <div class="form-group"><label>Cód. Producto</label>
+          <input type="text" id="exc-cod-display" readonly style="background:#f0f4f8;cursor:default"></div>
+        <div class="form-group full"><label>Insumo</label>
+          <input type="text" id="exc-insumo-display" readonly style="background:#f0f4f8;cursor:default"></div>
+
+        <div class="form-group"><label>Fecha</label>
+          <input type="date" name="fecha" id="exc-fecha" value="{{ today }}" required></div>
+        <div class="form-group"><label>Unidad</label>
+          <input type="text" name="unidad" id="exc-unidad" readonly style="background:#f0f4f8;cursor:default"></div>
+
+        <div class="form-group"><label>Cantidad a devolver</label>
+          <input type="number" name="cantidad" id="exc-cant" step="1" min="1" required></div>
+
+        <!-- BUSCADOR DE PROYECTO ORIGEN -->
+        <div class="form-group" style="position:relative">
+          <label>Proyecto Origen — escribe para buscar</label>
+          <input type="text" id="exc-proy-buscar" autocomplete="off"
+            placeholder="¿De qué proyecto vuelve este material?"
+            oninput="filtrarProyectosExcedente(this.value)"
+            style="width:100%">
+          <div id="exc-proy-lista" style="
+            display:none; position:absolute; z-index:9999;
+            background:white; border:1px solid #ccc; border-radius:6px;
+            max-height:200px; overflow-y:auto; width:100%;
+            box-shadow:0 4px 12px rgba(0,0,0,.15); top:calc(100% + 2px); left:0">
+          </div>
+          <small id="exc-err-proy" style="color:var(--danger);display:none">⚠️ Debes seleccionar un proyecto de la lista</small>
+        </div>
+        <input type="hidden" name="proyecto_origen" id="exc-proy-val">
+      </div>
+
+      <div class="form-row">
+        <button type="button" class="btn btn-outline" onclick="closeModal('modal-excedente')">Cancelar</button>
+        <button type="button" class="btn btn-accent" onclick="guardarExcedente()">💾 Guardar</button>
+      </div>
+    </form>
+  </div>
 </div></div>
 {% endblock %}
 
@@ -157,7 +202,7 @@ const PRODUCTOS = [
 
 const PROYECTOS = [
   {% for p in proyectos %}
-  { cod: "{{ p.codigo_proyecto|e }}", nombre: "{{ p.nombre_proyecto|e }}" },
+  { nombre: "{{ p.nombre|e }}" },
   {% endfor %}
 ];
 
@@ -223,17 +268,18 @@ function limpiarProducto() {
   c.max = ''; c.placeholder = '0';
 }
 
-// ── BUSCADOR PROYECTO ─────────────────────────────────────────────────────────
-function filtrarProyectos(q) {
-  proyectoSeleccionado = false;
-  document.getElementById('sal-proy-val').value  = '';
-  document.getElementById('sal-codproy').value   = '';
-  const lista = document.getElementById('proy-lista');
+// ── BUSCADOR PRODUCTO (Agregar Excedente) ──────────────────────────────────────
+let productoExcedenteSeleccionado = false;
+
+function filtrarProductosExcedente(q) {
+  productoExcedenteSeleccionado = false;
+  limpiarExcedente();
+  const lista = document.getElementById('exc-prod-lista');
   const term  = q.trim().toLowerCase();
   if (!term) { lista.style.display = 'none'; return; }
 
-  const matches = PROYECTOS.filter(p =>
-    p.cod.toLowerCase().includes(term) || p.nombre.toLowerCase().includes(term)
+  const matches = PRODUCTOS.filter(p =>
+    p.cod.toLowerCase().includes(term) || p.insumo.toLowerCase().includes(term)
   ).slice(0, 50);
 
   if (!matches.length) {
@@ -243,19 +289,119 @@ function filtrarProyectos(q) {
   }
 
   lista.innerHTML = matches.map(p => `
-    <div onclick="seleccionarProyecto('${escHtml(p.cod)}','${escHtml(p.nombre)}')"
+    <div onclick="seleccionarProductoExcedente('${escHtml(p.cod)}','${escHtml(p.insumo)}','${escHtml(p.unidad)}')"
       style="padding:9px 14px;cursor:pointer;border-bottom:1px solid #eee;font-size:13px"
       onmouseover="this.style.background='#f0f4f8'" onmouseout="this.style.background=''">
-      <strong>[${escHtml(p.cod)}]</strong> ${escHtml(p.nombre)}
+      <strong>[${escHtml(p.cod)}]</strong> ${escHtml(p.insumo)}
+      <span style="float:right;color:#666">${escHtml(p.unidad)}</span>
     </div>`).join('');
   lista.style.display = 'block';
 }
 
-function seleccionarProyecto(cod, nombre) {
+function seleccionarProductoExcedente(cod, insumo, unidad) {
+  productoExcedenteSeleccionado = true;
+  document.getElementById('exc-prod-buscar').value = `[${cod}] ${insumo}`;
+  document.getElementById('exc-cod').value = cod;
+  document.getElementById('exc-cod-display').value = cod;
+  document.getElementById('exc-insumo').value = insumo;
+  document.getElementById('exc-insumo-display').value = insumo;
+  document.getElementById('exc-unidad').value = unidad;
+  document.getElementById('exc-prod-lista').style.display = 'none';
+  document.getElementById('exc-err-prod').style.display = 'none';
+}
+
+function limpiarExcedente() {
+  document.getElementById('exc-cod').value = '';
+  document.getElementById('exc-cod-display').value = '';
+  document.getElementById('exc-insumo').value = '';
+  document.getElementById('exc-insumo-display').value = '';
+  document.getElementById('exc-unidad').value = '';
+}
+
+// ── BUSCADOR PROYECTO ORIGEN (Agregar Excedente) ────────────────────────────────
+let proyectoExcedenteSeleccionado = false;
+
+function filtrarProyectosExcedente(q) {
+  proyectoExcedenteSeleccionado = false;
+  document.getElementById('exc-proy-val').value = '';
+  const lista = document.getElementById('exc-proy-lista');
+  const term = q.trim().toLowerCase();
+  if (!term) { lista.style.display = 'none'; return; }
+  const matches = PROYECTOS.filter(p => p.nombre.toLowerCase().includes(term)).slice(0, 50);
+  lista.innerHTML = matches.length ? matches.map(p => `
+    <div onclick="seleccionarProyectoExcedente('${escHtml(p.nombre)}')"
+      style="padding:9px 14px;cursor:pointer;border-bottom:1px solid #eee;font-size:13px"
+      onmouseover="this.style.background='#f0f4f8'" onmouseout="this.style.background=''">
+      📁 ${escHtml(p.nombre)}
+    </div>`).join('') : '<div style="padding:10px 14px;color:#999">Sin resultados</div>';
+  lista.style.display = 'block';
+}
+
+function seleccionarProyectoExcedente(nombre) {
+  proyectoExcedenteSeleccionado = true;
+  document.getElementById('exc-proy-buscar').value = nombre;
+  document.getElementById('exc-proy-val').value = nombre;
+  document.getElementById('exc-proy-lista').style.display = 'none';
+  document.getElementById('exc-err-proy').style.display = 'none';
+}
+
+document.addEventListener('click', e => {
+  if (!e.target.closest('#exc-proy-buscar') && !e.target.closest('#exc-proy-lista'))
+    document.getElementById('exc-proy-lista').style.display = 'none';
+});
+
+function guardarExcedente() {
+  if (!productoExcedenteSeleccionado || !document.getElementById('exc-cod').value) {
+    document.getElementById('exc-err-prod').style.display = 'block';
+    toast('Selecciona un producto válido de la lista', 'error');
+    return;
+  }
+  if (!proyectoExcedenteSeleccionado || !document.getElementById('exc-proy-val').value) {
+    document.getElementById('exc-err-proy').style.display = 'block';
+    toast('Selecciona el proyecto origen del excedente', 'error');
+    return;
+  }
+  const cant = parseFloat(document.getElementById('exc-cant').value) || 0;
+  if (cant <= 0) { toast('Ingresa una cantidad mayor a 0', 'error'); return; }
+  submitForm('/almacen/excedente', 'form-excedente', 'Excedente sumado al stock y restado del gasto del proyecto');
+}
+
+document.addEventListener('click', e => {
+  if (!e.target.closest('#exc-prod-buscar') && !e.target.closest('#exc-prod-lista'))
+    document.getElementById('exc-prod-lista').style.display = 'none';
+});
+
+// ── BUSCADOR PROYECTO ─────────────────────────────────────────────────────────
+function filtrarProyectos(q) {
+  proyectoSeleccionado = false;
+  document.getElementById('sal-proy-val').value  = '';
+  const lista = document.getElementById('proy-lista');
+  const term  = q.trim().toLowerCase();
+  if (!term) { lista.style.display = 'none'; return; }
+
+  const matches = PROYECTOS.filter(p =>
+    p.nombre.toLowerCase().includes(term)
+  ).slice(0, 50);
+
+  if (!matches.length) {
+    lista.innerHTML = '<div style="padding:10px 14px;color:#999">Sin resultados</div>';
+    lista.style.display = 'block';
+    return;
+  }
+
+  lista.innerHTML = matches.map(p => `
+    <div onclick="seleccionarProyecto('${escHtml(p.nombre)}')"
+      style="padding:9px 14px;cursor:pointer;border-bottom:1px solid #eee;font-size:13px"
+      onmouseover="this.style.background='#f0f4f8'" onmouseout="this.style.background=''">
+      📁 ${escHtml(p.nombre)}
+    </div>`).join('');
+  lista.style.display = 'block';
+}
+
+function seleccionarProyecto(nombre) {
   proyectoSeleccionado = true;
-  document.getElementById('proy-buscar').value         = `[${cod}] ${nombre}`;
+  document.getElementById('proy-buscar').value         = nombre;
   document.getElementById('sal-proy-val').value        = nombre;
-  document.getElementById('sal-codproy').value         = cod;
   document.getElementById('proy-lista').style.display  = 'none';
   document.getElementById('err-proy').style.display    = 'none';
 }
@@ -286,10 +432,21 @@ openModal = function(id) {
     document.getElementById('proy-lista').style.display = 'none';
     limpiarProducto();
     document.getElementById('sal-proy-val').value  = '';
-    document.getElementById('sal-codproy').value   = '';
-    document.getElementById('err-prod').style.display  = 'none';
+      document.getElementById('err-prod').style.display  = 'none';
     document.getElementById('err-proy').style.display  = 'none';
     document.getElementById('err-stock').style.display = 'none';
+  } else if (id === 'modal-excedente') {
+    productoExcedenteSeleccionado = false;
+    proyectoExcedenteSeleccionado = false;
+    document.getElementById('exc-prod-buscar').value = '';
+    document.getElementById('exc-prod-lista').style.display = 'none';
+    document.getElementById('exc-err-prod').style.display = 'none';
+    document.getElementById('exc-proy-buscar').value = '';
+    document.getElementById('exc-proy-val').value = '';
+    document.getElementById('exc-proy-lista').style.display = 'none';
+    document.getElementById('exc-err-proy').style.display = 'none';
+    document.getElementById('exc-cant').value = '';
+    limpiarExcedente();
   } else {
     const modal = document.getElementById(id);
     if (modal) setTimeout(() => initSelects(modal), 80);
@@ -330,9 +487,4 @@ function guardarSalida() {
   }
   submitForm('/almacen/salida','form-salida','Salida registrada y almacén actualizado');
 }
-
-document.getElementById('btn-edit').addEventListener('click',()=>{
-  const id=document.querySelector('#form-edit [name="id"]').value;
-  submitForm(`/almacen/edit/${id}`,'form-edit','Almacén actualizado');
-});
 </script>{% endblock %}

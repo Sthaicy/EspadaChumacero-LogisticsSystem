@@ -25,3 +25,8 @@ Thumbs.db
 
 # PyInstaller
 *.spec
+backup/*.txt
+backup/*.zip
+
+*.txt
+*.zip
